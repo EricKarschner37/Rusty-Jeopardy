@@ -303,7 +303,7 @@ async fn main() {
             .or(games_route)
             .with(cors),
     )
-    .run(([127, 0, 0, 1], 10001))
+    .run(([0, 0, 0, 0], 10001))
     .await;
 }
 
