@@ -114,6 +114,7 @@ fn read_final(mut final_rdr: csv::Reader<std::fs::File>) -> Result<FinalJeopardy
 async fn start_game(games: Arc<RwLock<Vec<Arc<RwLock<Game>>>>>, num: usize) -> WithStatus<String> {
     if let Err(e) = ensure_game_exists(num) {
         eprintln!("Error fetching game {}: {}", num, e);
+        eprintln!("(Couldn't ensure it exists)");
         return warp::reply::with_status(
             format!("Error: no game #{} found", num),
             warp::http::StatusCode::NOT_FOUND,
