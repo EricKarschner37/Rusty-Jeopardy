@@ -54,6 +54,7 @@ impl Game {
         self.state.state_type = StateType::FinalWager;
         self.state.round = Round::Final;
         self.state.clues_shown = 0;
+        self.state.category = self.final_jeopardy.category.clone();
         self.send_state();
     }
 
