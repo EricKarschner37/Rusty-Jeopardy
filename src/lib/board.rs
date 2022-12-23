@@ -122,8 +122,8 @@ pub async fn board_connected(
     let mut rx = UnboundedReceiverStream::new(rx);
 
     if game.write().await.board_connected(tx).is_err() {
-        // There is already a host connected
-        ws_tx.send(Message::close());
+        // There is already a board connected
+        ws_tx.send(Message::close()).await;
         return;
     }
 
@@ -138,7 +138,11 @@ pub async fn board_connected(
         }
     });
 
-    game.read().await.send_categories();
+    {
+        let game = game.read().await;
+        game.send_categories();
+        game.send_state();
+    }
 
     while let Some(message) = ws_rx.next().await {
         let msg = match message {
@@ -152,6 +156,9 @@ pub async fn board_connected(
         let txt = match msg.to_str() {
             Ok(s) => s,
             Err(_) => {
+                if msg.is_close() {
+                    break;
+                }
                 eprintln!("Received non-text Websocket message");
                 return;
             }

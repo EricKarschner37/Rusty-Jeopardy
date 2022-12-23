@@ -194,6 +194,9 @@ pub async fn player_connected(
             let txt = match msg.to_str() {
                 Ok(s) => s,
                 Err(_) => {
+                    if msg.is_close() {
+                        game.write().await.player_disconnected(m.name);
+                    }
                     eprintln!("websocket error: non-string message received");
                     return;
                 }

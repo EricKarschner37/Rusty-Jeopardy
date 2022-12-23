@@ -28,7 +28,7 @@ pub async fn host_connected(
     let game = match games.read().await.get(game_idx) {
         Some(g) => g.clone(),
         None => {
-            ws.close();
+            ws.close().await;
             return;
         }
     };
@@ -38,7 +38,7 @@ pub async fn host_connected(
 
     if game.write().await.host_connected(tx).is_err() {
         // There is already a host connected
-        ws_tx.send(Message::close());
+        ws_tx.send(Message::close()).await;
         return;
     }
 
@@ -65,6 +65,9 @@ pub async fn host_connected(
         let txt = match msg.to_str() {
             Ok(s) => s,
             Err(_) => {
+                if msg.is_close() {
+                    break;
+                }
                 eprintln!("Received non-text Websocket message");
                 return;
             }
