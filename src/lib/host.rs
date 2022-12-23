@@ -82,8 +82,8 @@ pub async fn host_connected(
         };
 
         match msg.request.as_str() {
-            "open" => game.write().await.state.buzzers_open = true,
-            "close" => game.write().await.state.buzzers_open = false,
+            "open" => game.write().await.set_buzzers_open(true),
+            "close" => game.write().await.set_buzzers_open(false),
             "correct" => {
                 let msg: CorrectMessage = match serde_json::from_str(txt) {
                     Ok(m) => m,
@@ -114,6 +114,11 @@ pub async fn host_connected(
 }
 
 impl Game {
+    fn set_buzzers_open(&mut self, open: bool) {
+        self.state.buzzers_open = open;
+        self.send_state();
+    }
+
     fn host_connected(&mut self, tx: UnboundedSender<Message>) -> Result<(), ()> {
         if self.host_tx.is_some() {
             Err(())
