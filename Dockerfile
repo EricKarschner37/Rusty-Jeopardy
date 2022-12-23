@@ -7,7 +7,7 @@ RUN cargo install --path .
 
 FROM alpine:latest
 COPY --from=builder /usr/local/cargo/bin/jeopardy /usr/local/bin/jeopardy
-COPY get_game.py .
+COPY get_game.py /usr/local/bin/
 
 RUN apk add --update --no-cache gcompat
 
