@@ -140,6 +140,11 @@ impl Game {
         };
         self.state.buzzers_open = true;
         self.buzz(&player);
+
+        self.final_jeopardy.player_responses.remove(&player);
+        self.final_jeopardy.wagers.remove(&player);
+
+        self.send_state();
     }
 
     pub fn show_response(&mut self) {

@@ -64,6 +64,7 @@ impl Game {
         }
         self.final_jeopardy.wagers.remove(&player);
         self.final_jeopardy.player_responses.remove(&player);
+        self.send_state();
     }
 
     fn set_player_balance(&mut self, player: String, amount: i32) {
@@ -71,6 +72,7 @@ impl Game {
             .players
             .entry(player)
             .and_modify(|p| p.balance = amount);
+        self.send_state();
     }
 
     fn reveal(&mut self, row: usize, col: usize) {
