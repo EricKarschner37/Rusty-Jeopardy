@@ -59,10 +59,12 @@ impl Game {
     }
 
     fn player_disconnected(&mut self, name: String) {
-        self.state
-            .players
-            .entry(name)
-            .and_modify(move |p| p.tx = None);
+        self.state.players.entry(name).and_modify(move |p| {
+            if let Some(tx) = &p.tx {
+                tx.send(Message::close());
+            }
+            p.tx = None;
+        });
     }
 
     pub fn buzz(&mut self, name: &str) {
@@ -187,7 +189,7 @@ pub async fn player_connected(
                 Ok(msg) => msg,
                 Err(e) => {
                     eprintln!("websocket error: {}", e);
-                    return;
+                    break;
                 }
             };
 
@@ -195,10 +197,10 @@ pub async fn player_connected(
                 Ok(s) => s,
                 Err(_) => {
                     if msg.is_close() {
-                        game.write().await.player_disconnected(m.name);
+                        game.write().await.player_disconnected(m.name.clone());
                     }
                     eprintln!("websocket error: non-string message received");
-                    return;
+                    continue;
                 }
             };
 
@@ -206,7 +208,7 @@ pub async fn player_connected(
                 Ok(m) => m,
                 Err(e) => {
                     eprintln!("Deserialization Error: {}", e);
-                    continue;
+                    break;
                 }
             };
 
@@ -217,7 +219,7 @@ pub async fn player_connected(
                         Ok(m) => m,
                         Err(e) => {
                             eprintln!("Deserialization Error: {}", e);
-                            continue;
+                            break;
                         }
                     };
                     game.write().await.response(m.name.clone(), msg.response);
@@ -227,7 +229,7 @@ pub async fn player_connected(
                         Ok(m) => m,
                         Err(e) => {
                             eprintln!("Deserialization Error: {}", e);
-                            continue;
+                            break;
                         }
                     };
                     game.write().await.wager(m.name.clone(), msg.amount);

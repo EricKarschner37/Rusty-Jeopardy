@@ -173,7 +173,7 @@ pub struct State {
     pub clues_shown: u32,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, PartialEq)]
 pub enum Round {
     Single,
     Double,

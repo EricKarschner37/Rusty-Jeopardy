@@ -10,7 +10,7 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 use warp::ws::{Message, WebSocket};
 
 use super::{
-    game::{BaseMessage, PlayerMessage, StateType},
+    game::{BaseMessage, PlayerMessage, Round, StateType},
     Game,
 };
 
@@ -53,12 +53,14 @@ pub async fn host_connected(
         }
     });
 
+    game.write().await.send_state();
+
     while let Some(msg) = ws_rx.next().await {
         let msg = match msg {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("Websocket error: {}", e);
-                return;
+                break;
             }
         };
 
@@ -69,7 +71,7 @@ pub async fn host_connected(
                     break;
                 }
                 eprintln!("Received non-text Websocket message");
-                return;
+                continue;
             }
         };
 
@@ -77,7 +79,7 @@ pub async fn host_connected(
             Ok(m) => m,
             Err(e) => {
                 eprintln!("Deserialization Error: {}", e);
-                return;
+                break;
             }
         };
 
@@ -89,7 +91,7 @@ pub async fn host_connected(
                     Ok(m) => m,
                     Err(e) => {
                         eprintln!("Deserialization Error: {}", e);
-                        return;
+                        break;
                     }
                 };
 
@@ -100,7 +102,7 @@ pub async fn host_connected(
                     Ok(m) => m,
                     Err(e) => {
                         eprintln!("Deserialization Error: {}", e);
-                        return;
+                        break;
                     }
                 };
 
@@ -129,6 +131,9 @@ impl Game {
         }
     }
     fn host_disconnected(&mut self) {
+        if let Some(tx) = &self.host_tx {
+            tx.send(Message::close());
+        }
         self.host_tx = None;
     }
 
@@ -141,6 +146,11 @@ impl Game {
                     -self.state.cost
                 };
             });
+
+            if self.state.round == Round::Final {
+                self.evaluate_final_responses();
+                return;
+            }
 
             if correct || self.state.responded_players.len() == self.state.players.keys().len() {
                 self.state.buzzed_player = None;

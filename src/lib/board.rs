@@ -38,6 +38,9 @@ impl Game {
         }
     }
     fn board_disconnected(&mut self) {
+        if let Some(tx) = &self.board_tx {
+            tx.send(Message::close());
+        }
         self.board_tx = None;
         self.send_state();
     }
@@ -151,7 +154,7 @@ pub async fn board_connected(
             Ok(s) => s,
             Err(e) => {
                 eprintln!("Websocket error: {}", e);
-                return;
+                break;
             }
         };
 
@@ -162,7 +165,7 @@ pub async fn board_connected(
                     break;
                 }
                 eprintln!("Received non-text Websocket message");
-                return;
+                continue;
             }
         };
 
@@ -170,7 +173,7 @@ pub async fn board_connected(
             Ok(m) => m,
             Err(e) => {
                 eprintln!("Deserialization Error: {}", e);
-                return;
+                break;
             }
         };
 
@@ -188,7 +191,7 @@ pub async fn board_connected(
                     Ok(m) => m,
                     Err(e) => {
                         eprintln!("Deserialization Error: {}", e);
-                        return;
+                        break;
                     }
                 };
 
@@ -199,7 +202,7 @@ pub async fn board_connected(
                     Ok(m) => m,
                     Err(e) => {
                         eprintln!("Deserialization Error: {}", e);
-                        return;
+                        break;
                     }
                 };
 
@@ -210,7 +213,7 @@ pub async fn board_connected(
                     Ok(m) => m,
                     Err(e) => {
                         eprintln!("Deserialization Error: {}", e);
-                        return;
+                        break;
                     }
                 };
 
