@@ -21,13 +21,13 @@ struct CorrectMessage {
 }
 
 pub async fn host_connected(
-    games: Arc<RwLock<Vec<Arc<RwLock<Game>>>>>,
+    games: Arc<RwLock<Vec<Option<Arc<RwLock<Game>>>>>>,
     game_idx: usize,
     ws: WebSocket,
 ) {
     let game = match games.read().await.get(game_idx) {
-        Some(g) => g.clone(),
-        None => {
+        Some(Some(g)) => g.clone(),
+        _ => {
             ws.close().await;
             return;
         }
@@ -149,6 +149,7 @@ impl Game {
 
             if self.state.round == Round::Final {
                 self.evaluate_final_responses();
+                self.send_state();
                 return;
             }
 

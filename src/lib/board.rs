@@ -111,13 +111,13 @@ impl Game {
 }
 
 pub async fn board_connected(
-    games: Arc<RwLock<Vec<Arc<RwLock<Game>>>>>,
+    games: Arc<RwLock<Vec<Option<Arc<RwLock<Game>>>>>>,
     game_idx: usize,
     ws: WebSocket,
 ) {
     let game = match games.read().await.get(game_idx) {
-        Some(g) => g.clone(),
-        None => {
+        Some(Some(g)) => g.clone(),
+        _ => {
             ws.close().await;
             return;
         }

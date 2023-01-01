@@ -14,12 +14,15 @@ pub struct Player {
     #[serde(skip_serializing)]
     pub tx: Option<mpsc::UnboundedSender<Message>>,
     pub balance: i32,
+    #[serde(skip_serializing)]
+    pub did_auth: bool,
 }
 
 #[derive(Deserialize)]
 struct ConnectMessage {
     request: String,
     name: String,
+    password: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -53,6 +56,7 @@ impl Game {
                     name,
                     tx: Some(tx),
                     balance: 0,
+                    did_auth: false,
                 },
             );
         }
@@ -127,13 +131,13 @@ impl Game {
 }
 
 pub async fn player_connected(
-    games: Arc<RwLock<Vec<Arc<RwLock<Game>>>>>,
+    games: Arc<RwLock<Vec<Option<Arc<RwLock<Game>>>>>>,
     game_idx: usize,
     ws: WebSocket,
 ) {
     let game = match games.read().await.get(game_idx) {
-        Some(game) => game.clone(),
-        None => {
+        Some(Some(game)) => game.clone(),
+        _ => {
             ws.close().await;
             return;
         }

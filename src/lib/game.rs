@@ -125,7 +125,12 @@ impl Game {
         }
         let player = match player {
             Some(p) => p,
-            None => return,
+            None => {
+                self.state.state_type = StateType::Response;
+                self.state.buzzed_player = None;
+                self.send_state();
+                return;
+            }
         };
 
         self.state.state_type = StateType::Clue;
@@ -154,6 +159,10 @@ impl Game {
         self.state.state_type = StateType::Response;
         self.state.responded_players.clear();
         self.send_state();
+    }
+
+    pub fn end(&mut self) {
+        self.send_to_all(Message::close());
     }
 }
 

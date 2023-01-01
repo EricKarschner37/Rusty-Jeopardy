@@ -1,4 +1,4 @@
-use futures_util::{future::Ready, TryFutureExt};
+use futures_util::{future::Ready, sink::With, TryFutureExt};
 use lib::{
     board_connected, host_connected, player_connected, BoardData, FinalJeopardy, Game, State,
 };
@@ -110,7 +110,10 @@ fn read_final(mut final_rdr: csv::Reader<std::fs::File>) -> Result<FinalJeopardy
     })
 }
 
-async fn start_game(games: Arc<RwLock<Vec<Arc<RwLock<Game>>>>>, num: usize) -> WithStatus<String> {
+async fn start_game(
+    games: Arc<RwLock<Vec<Option<Arc<RwLock<Game>>>>>>,
+    num: usize,
+) -> WithStatus<String> {
     if let Err(e) = ensure_game_exists(num) {
         eprintln!("Error fetching game {}: {}", num, e);
         eprintln!("(Couldn't ensure it exists)");
@@ -213,14 +216,14 @@ async fn start_game(games: Arc<RwLock<Vec<Arc<RwLock<Game>>>>>, num: usize) -> W
     };
 
     let mut games = games.write().await;
-    games.push(Arc::new(RwLock::new(Game {
+    games.push(Some(Arc::new(RwLock::new(Game {
         state: State::new(),
         host_tx: None,
         board_tx: None,
         single_jeopardy,
         double_jeopardy,
         final_jeopardy,
-    })));
+    }))));
 
     let msg = GameCreatedMessage {
         message: "Game created successfully",
@@ -238,6 +241,15 @@ async fn start_game(games: Arc<RwLock<Vec<Arc<RwLock<Game>>>>>, num: usize) -> W
     }
 }
 
+async fn end_game(games: Arc<RwLock<Vec<Option<Arc<RwLock<Game>>>>>>, game_idx: usize) -> String {
+    let mut games = games.write().await;
+    if let Some(Some(game)) = games.get(game_idx) {
+        game.write().await.end();
+        games[game_idx] = None;
+    }
+    "Success".to_string()
+}
+
 #[derive(Serialize)]
 struct GameCreatedMessage<'a> {
     message: &'a str,
@@ -246,7 +258,8 @@ struct GameCreatedMessage<'a> {
 
 #[tokio::main]
 async fn main() {
-    let games: Arc<RwLock<Vec<Arc<RwLock<Game>>>>> = Arc::new(RwLock::new(Vec::with_capacity(10)));
+    let games: Arc<RwLock<Vec<Option<Arc<RwLock<Game>>>>>> =
+        Arc::new(RwLock::new(Vec::with_capacity(10)));
     let games_filter = warp::any().map(move || games.clone());
     let start_route = warp::post()
         .and(warp::path!("api" / "start" / usize))
@@ -255,22 +268,31 @@ async fn main() {
             Ok::<WithStatus<String>, warp::Rejection>(start_game(games, num).await)
         });
 
+    let end_route = warp::post()
+        .and(warp::path!("api" / "end" / usize))
+        .and(games_filter.clone())
+        .and_then(|game_idx, games| async move {
+            Ok::<String, warp::Rejection>(end_game(games, game_idx).await)
+        });
+
     let games_route = warp::path!("api" / "games")
         .and(games_filter.clone())
-        .and_then(|games: Arc<RwLock<Vec<Arc<RwLock<Game>>>>>| async move {
-            let games = games.read().await;
-            let resp: Vec<usize> = (0..games.len()).collect();
-            match serde_json::to_string(&resp) {
-                Ok(s) => Ok(s),
-                Err(_) => Err(warp::reject()),
-            }
-        });
+        .and_then(
+            |games: Arc<RwLock<Vec<Option<Arc<RwLock<Game>>>>>>| async move {
+                let games = games.read().await;
+                let resp: Vec<usize> = (0..games.len()).collect();
+                match serde_json::to_string(&resp) {
+                    Ok(s) => Ok(s),
+                    Err(_) => Err(warp::reject()),
+                }
+            },
+        );
 
     let buzzer_route = warp::path!("ws" / usize / "buzzer")
         .and(warp::ws())
         .and(games_filter.clone())
         .map(
-            |game_idx, ws: warp::ws::Ws, games: Arc<RwLock<Vec<Arc<RwLock<Game>>>>>| {
+            |game_idx, ws: warp::ws::Ws, games: Arc<RwLock<Vec<Option<Arc<RwLock<Game>>>>>>| {
                 ws.on_upgrade(move |ws| player_connected(games, game_idx, ws))
             },
         );
@@ -279,7 +301,9 @@ async fn main() {
         .and(warp::ws())
         .and(games_filter.clone())
         .map(
-            |game_idx: usize, ws: warp::ws::Ws, games: Arc<RwLock<Vec<Arc<RwLock<Game>>>>>| {
+            |game_idx: usize,
+             ws: warp::ws::Ws,
+             games: Arc<RwLock<Vec<Option<Arc<RwLock<Game>>>>>>| {
                 ws.on_upgrade(move |ws| host_connected(games, game_idx, ws))
             },
         );
@@ -288,7 +312,9 @@ async fn main() {
         .and(warp::ws())
         .and(games_filter.clone())
         .map(
-            |game_idx: usize, ws: warp::ws::Ws, games: Arc<RwLock<Vec<Arc<RwLock<Game>>>>>| {
+            |game_idx: usize,
+             ws: warp::ws::Ws,
+             games: Arc<RwLock<Vec<Option<Arc<RwLock<Game>>>>>>| {
                 ws.on_upgrade(move |ws| board_connected(games, game_idx, ws))
             },
         );
@@ -298,6 +324,7 @@ async fn main() {
     warp::serve(
         buzzer_route
             .or(host_route)
+            .or(end_route)
             .or(board_route)
             .or(start_route)
             .or(games_route)
