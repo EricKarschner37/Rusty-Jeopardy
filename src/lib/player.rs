@@ -37,6 +37,13 @@ struct ResponseMessage {
     response: String,
 }
 
+#[derive(Serialize)]
+struct PlayerInputResponseMessage {
+    message: String,
+    valid: bool,
+    reason: String,
+}
+
 impl Game {
     fn register_player(&mut self, name: &str, tx: mpsc::UnboundedSender<Message>) {
         let name = name.to_owned();
@@ -83,6 +90,30 @@ impl Game {
     }
 
     fn response(&mut self, name: String, response: String) {
+        let msg = if response.is_empty() {
+            PlayerInputResponseMessage {
+                message: "input-response".to_string(),
+                valid: false,
+                reason: "Input cannot be empty".to_string(),
+            }
+        } else {
+            PlayerInputResponseMessage {
+                message: "input-response".to_string(),
+                valid: false,
+                reason: "Input received".to_string(),
+            }
+        };
+
+        if let Some(Some(tx)) = self.state.players.get(&name).map(|p| &p.tx) {
+            if let Ok(txt) = serde_json::to_string(&msg) {
+                tx.send(Message::text(txt));
+            }
+        }
+
+        if !msg.valid {
+            return;
+        }
+
         self.final_jeopardy
             .player_responses
             .insert(name, Some(response));
@@ -97,25 +128,58 @@ impl Game {
         }
     }
 
-    fn is_wager_valid(&self, player: &str, amount: i32) -> bool {
+    fn get_max_wager(&self, player: &str, amount: i32) -> i32 {
         let buzzed_player_balance = self.state.players[player].balance;
-        let max_wager = match self.state.round {
+        match self.state.round {
             Round::Single => cmp::max(buzzed_player_balance, 1000),
             Round::Double => cmp::max(buzzed_player_balance, 2000),
             Round::Final => cmp::max(buzzed_player_balance, 3000),
-        };
-        amount >= 5 && amount <= max_wager as i32
+        }
     }
 
     fn wager(&mut self, player: String, wager: i32) {
-        if !self.is_wager_valid(&player, wager) {
+        let max = self.get_max_wager(&player, wager);
+        let msg: PlayerInputResponseMessage = if wager > max {
+            PlayerInputResponseMessage {
+                message: "input-response".to_string(),
+                valid: false,
+                reason: format!("Wager too high (max wager: {})", max),
+            }
+        } else if wager < 5 {
+            PlayerInputResponseMessage {
+                message: "input-response".to_string(),
+                valid: false,
+                reason: "Wager too low (min wager: 5)".to_string(),
+            }
+        } else {
+            PlayerInputResponseMessage {
+                message: "input-response".to_string(),
+                valid: true,
+                reason: "Wager accepted".to_string(),
+            }
+        };
+
+        if let Some(Some(tx)) = self.state.players.get(&player).map(|p| &p.tx) {
+            if let Ok(txt) = serde_json::to_string(&msg) {
+                tx.send(Message::text(txt));
+            }
+        }
+
+        if !msg.valid {
             return;
         }
+
         if self.state.state_type == StateType::DailyDouble {
             self.state.cost = wager;
             self.state.state_type = StateType::Clue;
             self.state.active_player = None;
             self.state.buzzers_open = true;
+
+            for p in self.state.players.keys() {
+                if p != &player {
+                    self.state.responded_players.insert(player.to_string());
+                }
+            }
             self.buzz(&player);
             self.send_state();
             return;
