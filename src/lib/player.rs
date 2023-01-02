@@ -176,9 +176,7 @@ impl Game {
             self.state.buzzers_open = true;
 
             for p in self.state.players.keys() {
-                if p != &player {
-                    self.state.responded_players.insert(player.to_string());
-                }
+                self.state.responded_players.insert(p.to_string());
             }
             self.buzz(&player);
             self.send_state();
