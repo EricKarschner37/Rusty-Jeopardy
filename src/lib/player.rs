@@ -174,11 +174,12 @@ impl Game {
             self.state.state_type = StateType::Clue;
             self.state.active_player = None;
             self.state.buzzers_open = true;
+            self.buzz(&player);
 
             for p in self.state.players.keys() {
                 self.state.responded_players.insert(p.to_string());
             }
-            self.buzz(&player);
+
             self.send_state();
             return;
         }
