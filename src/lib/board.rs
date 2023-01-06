@@ -191,7 +191,7 @@ pub async fn board_connected(
                     Ok(m) => m,
                     Err(e) => {
                         eprintln!("Deserialization Error: {}", e);
-                        break;
+                        continue;
                     }
                 };
 
@@ -202,7 +202,7 @@ pub async fn board_connected(
                     Ok(m) => m,
                     Err(e) => {
                         eprintln!("Deserialization Error: {}", e);
-                        break;
+                        continue;
                     }
                 };
 
@@ -213,7 +213,7 @@ pub async fn board_connected(
                     Ok(m) => m,
                     Err(e) => {
                         eprintln!("Deserialization Error: {}", e);
-                        break;
+                        continue;
                     }
                 };
 

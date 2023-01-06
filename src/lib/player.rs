@@ -45,9 +45,17 @@ struct PlayerInputResponseMessage {
 }
 
 impl Game {
-    fn register_player(&mut self, name: &str, tx: mpsc::UnboundedSender<Message>) {
+    fn register_player(
+        &mut self,
+        name: &str,
+        tx: mpsc::UnboundedSender<Message>,
+    ) -> Result<(), ()> {
         let name = name.to_owned();
         if self.state.players.contains_key(&name) {
+            if let Some(Some(_tx)) = self.state.players.get(&name).map(|p| &p.tx) {
+                return Err(());
+            }
+
             self.state
                 .players
                 .entry(name)
@@ -67,6 +75,8 @@ impl Game {
                 },
             );
         }
+
+        Ok(())
     }
 
     fn player_disconnected(&mut self, name: String) {
@@ -128,7 +138,7 @@ impl Game {
         }
     }
 
-    fn get_max_wager(&self, player: &str, amount: i32) -> i32 {
+    fn get_max_wager(&self, player: &str) -> i32 {
         let buzzed_player_balance = self.state.players[player].balance;
         match self.state.round {
             Round::Single => cmp::max(buzzed_player_balance, 1000),
@@ -138,7 +148,7 @@ impl Game {
     }
 
     fn wager(&mut self, player: String, wager: i32) {
-        let max = self.get_max_wager(&player, wager);
+        let max = self.get_max_wager(&player);
         let msg: PlayerInputResponseMessage = if wager > max {
             PlayerInputResponseMessage {
                 message: "input-response".to_string(),
@@ -247,7 +257,9 @@ pub async fn player_connected(
 
         {
             let mut game = game.write().await;
-            game.register_player(&m.name, tx);
+            if let Err(_) = game.register_player(&m.name, tx) {
+                return;
+            }
             game.send_state();
         }
 
