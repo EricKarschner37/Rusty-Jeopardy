@@ -99,7 +99,7 @@ impl Game {
         } else {
             PlayerInputResponseMessage {
                 message: "input-response".to_string(),
-                valid: false,
+                valid: true,
                 reason: "Input received".to_string(),
             }
         };
