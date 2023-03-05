@@ -288,7 +288,7 @@ async fn main() {
             },
         );
 
-    let buzzer_route = warp::path!("ws" / usize / "buzzer")
+    let buzzer_route = warp::path!("api" / "ws" / usize / "buzzer")
         .and(warp::ws())
         .and(games_filter.clone())
         .map(
@@ -297,7 +297,7 @@ async fn main() {
             },
         );
 
-    let host_route = warp::path!("ws" / usize / "host")
+    let host_route = warp::path!("api" / "ws" / usize / "host")
         .and(warp::ws())
         .and(games_filter.clone())
         .map(
@@ -308,7 +308,7 @@ async fn main() {
             },
         );
 
-    let board_route = warp::path!("ws" / usize / "board")
+    let board_route = warp::path!("api" / "ws" / usize / "board")
         .and(warp::ws())
         .and(games_filter.clone())
         .map(
