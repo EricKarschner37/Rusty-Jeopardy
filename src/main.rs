@@ -52,8 +52,7 @@ fn ensure_game_exists(num: usize) -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
-    let mut c = Command::new("python");
-    c.arg("get_game.py");
+    let mut c = Command::new("get_game.py");
     c.arg(num.to_string());
 
     match c.status() {
