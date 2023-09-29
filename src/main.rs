@@ -5,7 +5,14 @@ use lib::{
 use serde::Serialize;
 
 use std::{
-    collections::HashMap, env, error::Error, future::ready, path::Path, process::Command, sync::Arc,
+    collections::HashMap,
+    env,
+    error::Error,
+    future::ready,
+    path::Path,
+    process::Command,
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::RwLock;
 
@@ -45,7 +52,8 @@ fn ensure_game_exists(num: usize) -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
-    let mut c = Command::new("get_game.py");
+    let mut c = Command::new("python");
+    c.arg("get_game.py");
     c.arg(num.to_string());
 
     match c.status() {
@@ -215,6 +223,19 @@ async fn start_game(
         }
     };
 
+    let timestamp = match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(d) => d.as_millis(),
+        Err(e) => {
+            return warp::reply::with_status(
+                format!(
+                    "something went wrong getting the timestamp for the new game: {}",
+                    e
+                ),
+                warp::http::StatusCode::INTERNAL_SERVER_ERROR,
+            );
+        }
+    };
+
     let mut games = games.write().await;
     games.push(Some(Arc::new(RwLock::new(Game {
         state: State::new(),
@@ -223,6 +244,7 @@ async fn start_game(
         single_jeopardy,
         double_jeopardy,
         final_jeopardy,
+        created: timestamp,
     }))));
 
     let msg = GameCreatedMessage {
@@ -256,6 +278,12 @@ struct GameCreatedMessage<'a> {
     game_idx: usize,
 }
 
+#[derive(Serialize)]
+struct GameOption {
+    game_idx: usize,
+    created: u128,
+}
+
 #[tokio::main]
 async fn main() {
     let games: Arc<RwLock<Vec<Option<Arc<RwLock<Game>>>>>> =
@@ -265,7 +293,8 @@ async fn main() {
         .and(warp::path!("api" / "start" / usize))
         .and(games_filter.clone())
         .and_then(|num, games| async move {
-            Ok::<WithStatus<String>, warp::Rejection>(start_game(games, num).await)
+            print!("{}", num);
+            return Ok::<WithStatus<String>, warp::Rejection>(start_game(games, num).await);
         });
 
     let end_route = warp::post()
@@ -280,7 +309,16 @@ async fn main() {
         .and_then(
             |games: Arc<RwLock<Vec<Option<Arc<RwLock<Game>>>>>>| async move {
                 let games = games.read().await;
-                let resp: Vec<usize> = (0..games.len()).collect();
+                let mut resp: Vec<GameOption> = Vec::with_capacity(games.len());
+                for (i, game) in games.iter().enumerate() {
+                    if let Some(game) = game {
+                        resp.push(GameOption {
+                            game_idx: i,
+                            created: game.read().await.created,
+                        })
+                    }
+                }
+
                 match serde_json::to_string(&resp) {
                     Ok(s) => Ok(s),
                     Err(_) => Err(warp::reject()),

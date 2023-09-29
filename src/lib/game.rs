@@ -27,6 +27,7 @@ pub struct Game {
     pub final_jeopardy: FinalJeopardy,
     pub host_tx: Option<mpsc::UnboundedSender<Message>>,
     pub board_tx: Option<mpsc::UnboundedSender<Message>>,
+    pub created: u128,
 }
 
 #[derive(Deserialize)]
