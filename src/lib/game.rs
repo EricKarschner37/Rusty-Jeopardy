@@ -170,6 +170,7 @@ impl Game {
 #[derive(Serialize)]
 pub struct State {
     pub state_type: StateType,
+    pub categories: [String; 6],
     pub buzzers_open: bool,
     pub buzzed_player: Option<String>,
     pub active_player: Option<String>,
@@ -204,6 +205,14 @@ impl State {
     pub fn new() -> Self {
         Self {
             state_type: StateType::Board,
+            categories: [
+                "Category 1".to_string(),
+                "Category 2".to_string(),
+                "Category 3".to_string(),
+                "Category 4".to_string(),
+                "Category 5".to_string(),
+                "Category 6".to_string(),
+            ],
             buzzers_open: false,
             buzzed_player: None,
             active_player: None,

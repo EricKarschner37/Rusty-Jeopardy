@@ -236,7 +236,8 @@ async fn start_game(
     };
 
     let mut games = games.write().await;
-    games.push(Some(Arc::new(RwLock::new(Game {
+
+    let mut game = Game {
         state: State::new(),
         host_tx: None,
         board_tx: None,
@@ -244,11 +245,15 @@ async fn start_game(
         double_jeopardy,
         final_jeopardy,
         created: timestamp,
-    }))));
+    };
+
+    game.state.categories = game.single_jeopardy.categories.clone();
+
+    games.push(Some(Arc::new(RwLock::new(game))));
 
     let msg = GameCreatedMessage {
         message: "Game created successfully",
-        game_idx: games.len() - 1,
+        gameIndex: games.len() - 1,
     };
 
     let resp = serde_json::to_string(&msg);
@@ -274,7 +279,7 @@ async fn end_game(games: Arc<RwLock<Vec<Option<Arc<RwLock<Game>>>>>>, game_idx: 
 #[derive(Serialize)]
 struct GameCreatedMessage<'a> {
     message: &'a str,
-    game_idx: usize,
+    gameIndex: usize,
 }
 
 #[derive(Serialize)]

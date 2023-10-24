@@ -31,13 +31,16 @@ struct RevealMessage {
 impl Game {
     fn board_connected(&mut self, tx: UnboundedSender<Message>) -> Result<(), ()> {
         if self.board_tx.is_some() {
+            println!("attempted to connect board, but there's already ony connected");
             Err(())
         } else {
+            println!("connecting board");
             self.board_tx = Some(tx);
             Ok(())
         }
     }
     fn board_disconnected(&mut self) {
+        println!("removing board socket");
         if let Some(tx) = &self.board_tx {
             tx.send(Message::close());
         }
@@ -49,6 +52,7 @@ impl Game {
         self.state.state_type = StateType::Board;
         self.state.round = Round::Double;
         self.state.clues_shown = 0;
+        self.state.categories = self.double_jeopardy.categories.clone();
         self.send_categories();
         self.send_state();
     }
@@ -162,6 +166,8 @@ pub async fn board_connected(
             Ok(s) => s,
             Err(_) => {
                 if msg.is_close() {
+                    println!("board client disconnected");
+                    game.write().await.board_disconnected();
                     break;
                 }
                 eprintln!("Received non-text Websocket message");
