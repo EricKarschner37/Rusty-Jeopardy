@@ -1,6 +1,5 @@
-use futures_util::{future::Ready, sink::With, TryFutureExt};
 use lib::{
-    board_connected, host_connected, player_connected, BoardData, FinalJeopardy, Game, State,
+    board_connected, host_connected, player_connected, BoardData, FinalJeopardy, Game, Round, State,
 };
 use serde::Serialize;
 
@@ -8,7 +7,6 @@ use std::{
     collections::HashMap,
     env,
     error::Error,
-    future::ready,
     path::Path,
     process::Command,
     sync::Arc,
@@ -16,7 +14,7 @@ use std::{
 };
 use tokio::sync::RwLock;
 
-use warp::{reply::WithStatus, Filter, Reply};
+use warp::{reply::WithStatus, Filter};
 
 pub mod lib;
 
@@ -288,6 +286,12 @@ struct GameOption {
     created: u128,
 }
 
+#[derive(Serialize)]
+struct GameDetails {
+    players: Vec<String>,
+    categories: Vec<String>,
+}
+
 #[tokio::main]
 async fn main() {
     let games: Arc<RwLock<Vec<Option<Arc<RwLock<Game>>>>>> =
@@ -323,6 +327,34 @@ async fn main() {
                     }
                 }
 
+                match serde_json::to_string(&resp) {
+                    Ok(s) => Ok(s),
+                    Err(_) => Err(warp::reject()),
+                }
+            },
+        );
+
+    let game_route = warp::path!("api" / "game" / usize)
+        .and(games_filter.clone())
+        .and_then(
+            |game_idx: usize, games: Arc<RwLock<Vec<Option<Arc<RwLock<Game>>>>>>| async move {
+                let games = games.read().await;
+                let game = match games.get(game_idx) {
+                    Some(Some(g)) => g,
+                    _ => return Err(warp::reject()),
+                };
+
+                let game = game.read().await;
+                let players = game.state.players.keys().map(|s| s.to_owned()).collect();
+                let categories = match game.state.round {
+                    Round::Single => game.single_jeopardy.categories.to_vec(),
+                    Round::Double => game.double_jeopardy.categories.to_vec(),
+                    Round::Final => vec![game.final_jeopardy.category.clone()],
+                };
+                let resp = GameDetails {
+                    players,
+                    categories,
+                };
                 match serde_json::to_string(&resp) {
                     Ok(s) => Ok(s),
                     Err(_) => Err(warp::reject()),
@@ -370,6 +402,7 @@ async fn main() {
             .or(board_route)
             .or(start_route)
             .or(games_route)
+            .or(game_route)
             .with(cors),
     )
     .run(([0, 0, 0, 0], 10001))
