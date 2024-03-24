@@ -17,11 +17,11 @@ ENV J_GAME_ROOT=games
 RUN chmod ugo+w games -R
 
 ENV PYTHONUNBUFFERED=1
-RUN apk add --update --no-cache python3 && ln -sf python3 /usr/bin/python
-RUN python3 -m ensurepip
-RUN pip3 install --no-cache --upgrade pip setuptools
+RUN apk add --update --no-cache python3 py3-pip py3-virtualenv
 COPY requirements.txt .
-RUN python3 -m pip install -r requirements.txt
+RUN python3 -m venv /opt/venv && source /opt/venv/bin/activate
+ENV PATH="/opt/venv/bin:$PATH"
+RUN pip3 install -Ur requirements.txt
 
 EXPOSE 10001
 

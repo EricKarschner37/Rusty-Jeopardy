@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/opt/venv/bin/python
 from bs4 import BeautifulSoup
 from urllib.request import urlopen
 import csv
