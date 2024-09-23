@@ -1,0 +1,19 @@
+services:
+  rusty-jeopardy:
+    build: .
+    ports:
+      - "10001:10001"
+    environment:
+      - DD_APM_ENABLED=true
+      - DD_MAX_TPS=1
+      - DD_API_KEY=500ba236d6908575b435437e2816635008cdfd91
+      - DD_APM_ENV=apm-otel-instrumentation-test-env
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://datadog-agent:4318
+    restart: always
+    networks:
+      - ddog
+
+networks:
+  ddog:
+    name: ddog
+    external: true

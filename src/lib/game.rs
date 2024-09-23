@@ -6,10 +6,69 @@ use warp::ws::Message;
 
 use super::player::Player;
 
-pub struct BoardData {
-    pub categories: [String; 6],
-    pub clues: [[String; 6]; 5],
-    pub responses: [[String; 6]; 5],
+pub trait Round {
+    fn get_categories(&self) -> Vec<String>;
+    fn get_name(&self) -> String;
+}
+
+#[derive(Deserialize)]
+pub struct Clue {
+    pub cost: i32,
+    pub clue: String,
+    pub response: String,
+    pub is_daily_double: bool,
+}
+
+#[derive(Deserialize)]
+pub struct Category {
+    pub category: String,
+    pub clues: Vec<Clue>,
+}
+
+#[derive(Deserialize)]
+pub struct BaseRound {
+    pub type: String,
+}
+
+#[derive(Deserialize)]
+pub struct DefaultRound {
+    pub type: String,
+    pub categories: Vec<Category>,
+    pub name: String,
+}
+
+impl Round for DefaultRound {
+    fn get_categories(&self) -> Vec<String> {
+        self.categories.iter().map(|c| c.category.clone()).collect()
+    }
+
+    fn get_name(&self) -> String {
+        self.name.clone()
+    }
+}
+
+#[derive(Deserialize)]
+pub struct FinalRound {
+    pub type: String,
+    pub category: String,
+    pub clue: String,
+    pub response: String,
+    pub name: String,
+
+    #[serde(skip))]
+    pub wagers: HashMap<String, Option<i32>>,
+    #[serde(skip))]
+    pub player_responses: HashMap<String, Option<String>>,
+}
+
+impl Round for FinalRound {
+    fn get_categories(&self) -> Vec<String> {
+        vec![self.category.clone()]
+    }
+
+    fn get_name(&self) -> String {
+        self.name.clone()
+    }
 }
 
 pub struct FinalJeopardy {
@@ -21,10 +80,9 @@ pub struct FinalJeopardy {
 }
 
 pub struct Game {
+    pub rounds: Vec<Box<dyn Round>>,
     pub state: State,
-    pub single_jeopardy: BoardData,
-    pub double_jeopardy: BoardData,
-    pub final_jeopardy: FinalJeopardy,
+    pub round_idx: usize,
     pub host_tx: Option<mpsc::UnboundedSender<Message>>,
     pub board_tx: Option<mpsc::UnboundedSender<Message>>,
     pub created: u128,
@@ -170,7 +228,7 @@ impl Game {
 #[derive(Serialize)]
 pub struct State {
     pub state_type: StateType,
-    pub categories: [String; 6],
+    pub categories: Vec<String>,
     pub buzzers_open: bool,
     pub buzzed_player: Option<String>,
     pub active_player: Option<String>,
@@ -180,15 +238,8 @@ pub struct State {
     pub clue: String,
     pub response: String,
     pub players: HashMap<String, Player>,
-    pub round: Round,
+    pub round_name: String,
     pub clues_shown: u32,
-}
-
-#[derive(Serialize, PartialEq)]
-pub enum Round {
-    Single,
-    Double,
-    Final,
 }
 
 #[derive(Serialize, PartialEq)]
@@ -205,7 +256,7 @@ impl State {
     pub fn new() -> Self {
         Self {
             state_type: StateType::Board,
-            categories: [
+            categories: vec![
                 "Category 1".to_string(),
                 "Category 2".to_string(),
                 "Category 3".to_string(),
@@ -222,7 +273,7 @@ impl State {
             response: "I'm sure that'll be soon".to_string(),
             players: HashMap::new(),
             responded_players: HashSet::new(),
-            round: Round::Single,
+            round_name: "Jeopardy! Round".to_string(),
             clues_shown: 0,
         }
     }

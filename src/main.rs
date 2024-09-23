@@ -23,26 +23,9 @@ const GAME_PREFIX_NAME: &str = "JEOPARDY_GAME_ROOT";
 
 fn game_exists(num: usize) -> bool {
     let prefix = env::var(GAME_PREFIX_NAME).unwrap_or(DEFAULT_GAME_PREFIX.to_string());
-    let game_dir = format!("{}{}", prefix, num);
-    let game_dir = Path::new(&game_dir);
-    if !game_dir.is_dir() {
-        return false;
-    }
-
-    for filename in [
-        "single_clues",
-        "single_responses",
-        "double_clues",
-        "double_responses",
-        "final",
-    ] {
-        if !game_dir.join(format!("{}.csv", filename)).is_file() {
-            println!("{}", filename);
-            return false;
-        }
-    }
-
-    true
+    let game_path = format!("{}{}.json", prefix, num);
+    let game = Path::new(&game_path);
+    game.is_file()
 }
 
 fn ensure_game_exists(num: usize) -> Result<(), Box<dyn Error>> {
@@ -129,30 +112,8 @@ async fn start_game(
     }
 
     let prefix = env::var(GAME_PREFIX_NAME).unwrap_or(DEFAULT_GAME_PREFIX.to_string());
-    let game_dir = format!("{}{}", prefix, num);
-    let game_dir = Path::new(&game_dir);
-
-    let clue_rdr = match csv::Reader::from_path(game_dir.join("single_clues.csv")) {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("Error fetching game {}: {}", num, e);
-            return warp::reply::with_status(
-                format!("Error: game #{} not found", num),
-                warp::http::StatusCode::NOT_FOUND,
-            );
-        }
-    };
-
-    let resp_rdr = match csv::Reader::from_path(game_dir.join("single_responses.csv")) {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("Error fetching game {}: {}", num, e);
-            return warp::reply::with_status(
-                format!("Error: no game #{} not found", num),
-                warp::http::StatusCode::NOT_FOUND,
-            );
-        }
-    };
+    let game_path = format!("{}{}.json", prefix, num);
+    let game_path = Path::new(&game_path);
 
     let single_jeopardy = match read_round(clue_rdr, resp_rdr) {
         Ok(r) => r,

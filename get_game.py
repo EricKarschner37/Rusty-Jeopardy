@@ -31,34 +31,18 @@ def get_from_url(url):
 
     os.mkdir(root)
 
-    with open(f"{root}/single_clues.csv", 'w') as f:
-        wr = csv.writer(f)
-        wr.writerow(single_cat)
-        wr.writerows(single_clues)
-    with open(f"{root}/single_responses.csv", 'w') as f:
-        wr = csv.writer(f)
-        wr.writerow(single_cat)
-        wr.writerows(single_answers)
-    with open(f"{root}/double_clues.csv", 'w') as f:
-        wr = csv.writer(f)
-        wr.writerow(double_cat)
-        wr.writerows(double_clues)
-    with open(f"{root}/double_responses.csv", 'w') as f:
-        wr = csv.writer(f)
-        wr.writerow(double_cat)
-        wr.writerows(double_answers)
-    with open(f"{root}/final.csv", 'w') as f:
-        wr = csv.writer(f)
-        wr.writerow([final_cat])
-        wr.writerow([final_clue])
-        wr.writerow([final_answer])
-    return soup.select_one("div#game_title").select_one("h1").text
+def pull_default_from_table(table, name, round_multiplier=2):
+    categories = [{'category': td.text, 'clues': []} for td in table.select("td.category_name")]
 
-def clean_str(s):
-    s = s.replace("lt;", "").replace("gt;", "").replace("\\", "").replace("&", "").replace(";", "").replace("quot", "")
-    if s[0] == 'i' and s[-2:] == '/i':
-        s = s[1:-2]
-    return s
+    clue_rows = table.find_all("tr", recursive=False)
+    for row_i, tr in enumerate(clue_rows):
+        clueEls = tr.select("td.clue")
+        for i, td in enumerate(clueEls):
+            cost = 100 * (row_i + 1) * round_multiplier
+            clue = td.select_one("td.clue_text").text or "This clue was missing"
+            response = td.select_one("em.correct_response").text or "This response was missing"
+            is_daily_double = td.select_one("td.clue_value_daily_double") is not None
+            categories[i]['clues'].append({'clue': clue, 'response': response, 'cost': cost, 'is_daily_double': is_daily_double})
 
 def pull_from_table(table):
     categories = [td.text for td in table.select("td.category_name")]
