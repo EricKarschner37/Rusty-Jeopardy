@@ -4,6 +4,6 @@ mod host;
 mod player;
 
 pub use board::board_connected;
-pub use game::{BoardData, FinalJeopardy, Game, Round, State};
+pub use game::{Game, Round, RoundType, State};
 pub use host::host_connected;
 pub use player::{player_connected, Player};

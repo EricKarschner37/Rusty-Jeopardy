@@ -26,63 +26,43 @@ pub struct Category {
 }
 
 #[derive(Deserialize)]
-pub struct BaseRound {
-    pub type: String,
+#[serde(tag = "round_type")]
+pub enum RoundType {
+    DefaultRound {
+        categories: Vec<Category>,
+        name: String,
+        default_max_wager: i32,
+    },
+    FinalRound {
+        category: String,
+        name: String,
+        clue: String,
+        response: String,
+        default_max_wager: i32,
+    },
 }
 
-#[derive(Deserialize)]
-pub struct DefaultRound {
-    pub type: String,
-    pub categories: Vec<Category>,
-    pub name: String,
-}
-
-impl Round for DefaultRound {
+impl Round for RoundType {
     fn get_categories(&self) -> Vec<String> {
-        self.categories.iter().map(|c| c.category.clone()).collect()
+        match self {
+            RoundType::DefaultRound { categories, .. } => {
+                categories.iter().map(|c| c.category.clone()).collect()
+            }
+            RoundType::FinalRound { category, .. } => vec![category.clone()],
+        }
     }
 
     fn get_name(&self) -> String {
-        self.name.clone()
+        match self {
+            RoundType::DefaultRound { name, .. } => name.clone(),
+            RoundType::FinalRound { name, .. } => name.clone(),
+        }
     }
-}
-
-#[derive(Deserialize)]
-pub struct FinalRound {
-    pub type: String,
-    pub category: String,
-    pub clue: String,
-    pub response: String,
-    pub name: String,
-
-    #[serde(skip))]
-    pub wagers: HashMap<String, Option<i32>>,
-    #[serde(skip))]
-    pub player_responses: HashMap<String, Option<String>>,
-}
-
-impl Round for FinalRound {
-    fn get_categories(&self) -> Vec<String> {
-        vec![self.category.clone()]
-    }
-
-    fn get_name(&self) -> String {
-        self.name.clone()
-    }
-}
-
-pub struct FinalJeopardy {
-    pub clue: String,
-    pub response: String,
-    pub category: String,
-    pub wagers: HashMap<String, Option<i32>>,
-    pub player_responses: HashMap<String, Option<String>>,
 }
 
 pub struct Game {
-    pub rounds: Vec<Box<dyn Round>>,
+    pub rounds: Vec<RoundType>,
     pub state: State,
-    pub round_idx: usize,
     pub host_tx: Option<mpsc::UnboundedSender<Message>>,
     pub board_tx: Option<mpsc::UnboundedSender<Message>>,
     pub created: u128,
@@ -109,22 +89,16 @@ struct StateMessage<'a> {
 #[derive(Serialize)]
 struct CategoriesMessage<'a> {
     message: &'a str,
-    categories: &'a [String; 6],
+    categories: &'a Vec<String>,
 }
 
 impl Game {
     pub fn send_categories(&self) {
-        let categories = match self.state.round {
-            Round::Single => &self.single_jeopardy.categories,
-            Round::Double => &self.double_jeopardy.categories,
-            Round::Final => {
-                return;
-            }
-        };
+        let categories = self.rounds[self.state.round_idx].get_categories();
 
         let msg = CategoriesMessage {
             message: "categories",
-            categories,
+            categories: &categories,
         };
 
         let cat_str = match serde_json::to_string(&msg) {
@@ -175,8 +149,14 @@ impl Game {
     pub fn evaluate_final_responses(&mut self) {
         let mut player = None;
         let mut response = "";
+
+        let correct_response = match &self.rounds[self.state.round_idx] {
+            RoundType::FinalRound { response, .. } => response,
+            _ => return,
+        };
+
         for p in self.state.players.keys() {
-            if let Some(Some(r)) = self.final_jeopardy.player_responses.get(p) {
+            if let Some(Some(r)) = self.state.player_responses.get(p) {
                 player = Some(p.clone());
                 response = r;
                 break;
@@ -195,18 +175,18 @@ impl Game {
         self.state.state_type = StateType::Clue;
         self.state.response = format!(
             "{}'s response: {}\nCorrect response: {}",
-            player, response, self.final_jeopardy.response
+            player, response, correct_response
         );
 
-        self.state.cost = match self.final_jeopardy.wagers.get(&player) {
+        self.state.cost = match self.state.wagers.get(&player) {
             Some(Some(a)) => *a,
             _ => 3000,
         };
         self.state.buzzers_open = true;
         self.buzz(&player);
 
-        self.final_jeopardy.player_responses.remove(&player);
-        self.final_jeopardy.wagers.remove(&player);
+        self.state.player_responses.remove(&player);
+        self.state.wagers.remove(&player);
 
         self.send_state();
     }
@@ -240,6 +220,9 @@ pub struct State {
     pub players: HashMap<String, Player>,
     pub round_name: String,
     pub clues_shown: u32,
+    pub wagers: HashMap<String, Option<i32>>,
+    pub player_responses: HashMap<String, Option<String>>,
+    pub round_idx: usize,
 }
 
 #[derive(Serialize, PartialEq)]
@@ -268,6 +251,7 @@ impl State {
             buzzed_player: None,
             active_player: None,
             cost: 0,
+            round_idx: 0,
             category: "Welcome to Jeopardy!".to_string(),
             clue: "Please wait for the game to start.".to_string(),
             response: "I'm sure that'll be soon".to_string(),
@@ -275,6 +259,8 @@ impl State {
             responded_players: HashSet::new(),
             round_name: "Jeopardy! Round".to_string(),
             clues_shown: 0,
+            wagers: HashMap::new(),
+            player_responses: HashMap::new(),
         }
     }
 }

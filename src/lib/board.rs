@@ -9,7 +9,7 @@ use tokio::sync::{
 use warp::ws::{Message, WebSocket};
 
 use super::{
-    game::{BaseMessage, PlayerMessage, Round, StateType},
+    game::{BaseMessage, PlayerMessage, Round, RoundType, StateType},
     Game,
 };
 use tokio_stream::wrappers::UnboundedReceiverStream;
@@ -50,18 +50,22 @@ impl Game {
 
     fn start_double(&mut self) {
         self.state.state_type = StateType::Board;
-        self.state.round = Round::Double;
+        self.state.round_idx += 1;
         self.state.clues_shown = 0;
-        self.state.categories = self.double_jeopardy.categories.clone();
+        self.state.categories = self.rounds[self.state.round_idx].get_categories();
         self.send_categories();
         self.send_state();
     }
 
     fn start_final(&mut self) {
         self.state.state_type = StateType::FinalWager;
-        self.state.round = Round::Final;
+        self.state.round_idx += 1;
         self.state.clues_shown = 0;
-        self.state.category = self.final_jeopardy.category.clone();
+        let new_round = &self.rounds[self.state.round_idx];
+        self.state.category = match new_round {
+            RoundType::FinalRound { category, .. } => category.to_owned(),
+            _ => "Sorry, something went wrong.".to_owned(),
+        };
         self.send_state();
     }
 
@@ -69,8 +73,8 @@ impl Game {
         if let Some(Some(tx)) = self.state.players.remove(&player).map(|p| p.tx) {
             tx.send(Message::close());
         }
-        self.final_jeopardy.wagers.remove(&player);
-        self.final_jeopardy.player_responses.remove(&player);
+        self.state.wagers.remove(&player);
+        self.state.player_responses.remove(&player);
         self.send_state();
     }
 
@@ -83,28 +87,24 @@ impl Game {
     }
 
     fn reveal(&mut self, row: usize, col: usize) {
-        let board = match self.state.round {
-            Round::Single => &self.single_jeopardy,
-            Round::Double => &self.double_jeopardy,
-            Round::Final => {
-                return;
-            }
+        let board = &self.rounds[self.state.round_idx];
+        let categories = match board {
+            RoundType::FinalRound { .. } => return,
+            RoundType::DefaultRound { categories, .. } => categories,
         };
+
         if row > 5 || col > 6 {
             return;
         }
 
         let bitset_key = 1 << (row * 6 + col);
-        let cost_multiplier = match self.state.round {
-            Round::Single => 200,
-            _ => 400,
-        };
 
-        self.state.clue = board.clues[row][col].clone();
-        self.state.response = board.responses[row][col].clone();
-        self.state.category = board.categories[col].clone();
-        self.state.cost = (row as i32 + 1) * cost_multiplier;
-        self.state.state_type = if self.state.clue.starts_with("Daily Double:") {
+        let clue_obj = &categories[col].clues[row];
+        self.state.clue = clue_obj.clue.clone();
+        self.state.response = clue_obj.response.clone();
+        self.state.category = categories[col].category.clone();
+        self.state.cost = clue_obj.cost;
+        self.state.state_type = if clue_obj.is_daily_double {
             StateType::DailyDouble
         } else {
             StateType::Clue

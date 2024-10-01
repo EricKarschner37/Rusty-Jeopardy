@@ -1,12 +1,11 @@
-use lib::{
-    board_connected, host_connected, player_connected, BoardData, FinalJeopardy, Game, Round, State,
-};
-use serde::Serialize;
+use lib::{board_connected, host_connected, player_connected, Game, Round, RoundType, State};
+use serde::{Deserialize, Serialize};
 
 use std::{
     collections::HashMap,
     env,
     error::Error,
+    fs,
     path::Path,
     process::Command,
     sync::Arc,
@@ -21,164 +20,62 @@ pub mod lib;
 const DEFAULT_GAME_PREFIX: &str = "games/";
 const GAME_PREFIX_NAME: &str = "JEOPARDY_GAME_ROOT";
 
-fn game_exists(num: usize) -> bool {
-    let prefix = env::var(GAME_PREFIX_NAME).unwrap_or(DEFAULT_GAME_PREFIX.to_string());
-    let game_path = format!("{}{}.json", prefix, num);
-    let game = Path::new(&game_path);
-    game.is_file()
+#[derive(Deserialize)]
+struct GameDefinition {
+    rounds: Vec<RoundType>,
 }
 
-fn ensure_game_exists(num: usize) -> Result<(), Box<dyn Error>> {
-    if game_exists(num) {
-        return Ok(());
+fn read_game(game_path: &Path) -> Result<GameDefinition, Box<dyn Error + Send>> {
+    let data = fs::read_to_string(game_path);
+    let data = match data {
+        Ok(string) => string,
+        Err(e) => return Err(Box::new(e)),
+    };
+    let res = serde_json::from_str(&data);
+    if let Err(e) = &res {
+        println!("{}", e);
     }
-
-    let mut c = Command::new("get_game.py");
-    c.arg(num.to_string());
-
-    match c.status() {
-        Ok(_) => Ok(()),
+    match res {
+        Ok(def) => Ok(def),
         Err(e) => Err(Box::new(e)),
     }
 }
 
-fn read_round(
-    mut clue_rdr: csv::Reader<std::fs::File>,
-    mut response_rdr: csv::Reader<std::fs::File>,
-) -> Result<BoardData, Box<dyn Error>> {
-    let mut clues: [[String; 6]; 5] = Default::default();
-    let mut responses: [[String; 6]; 5] = Default::default();
-    let mut categories: [String; 6] = Default::default();
+fn read_game_or_fetch(game_name: String) -> Result<GameDefinition, Box<dyn Error + Send>> {
+    let prefix = env::var(GAME_PREFIX_NAME).unwrap_or(DEFAULT_GAME_PREFIX.to_string());
+    let game_path = format!("{}{}.json", prefix, &game_name);
+    println!("{}", game_path);
+    let game_path = Path::new(&game_path);
 
-    for i in 0..=4 {
-        let clue_record = match clue_rdr.records().next() {
-            Some(r) => r?,
-            None => return Err(From::from("Not enough clues to unpack")),
-        };
-        let response_record = match response_rdr.records().next() {
-            Some(r) => r?,
-            None => return Err(From::from("Not enough responses to unpack")),
-        };
-
-        for j in 0..=5 {
-            if i == 0 {
-                categories[j] = clue_rdr.headers()?[j].to_string();
-            }
-            clues[i][j] = clue_record[j].to_string();
-            responses[i][j] = response_record[j].to_string();
-        }
+    let game = read_game(game_path);
+    if let Ok(game) = game {
+        return Ok(game);
     }
 
-    Ok(BoardData {
-        categories,
-        clues,
-        responses,
-    })
-}
+    let mut c = Command::new("get_game.py");
+    c.arg(game_name);
 
-fn read_final(mut final_rdr: csv::Reader<std::fs::File>) -> Result<FinalJeopardy, Box<dyn Error>> {
-    let clue = match final_rdr.records().next() {
-        Some(r) => r?[0].to_string(),
-        None => return Err(From::from("No final jeopardy clue")),
-    };
-
-    let response = match final_rdr.records().next() {
-        Some(r) => r?[0].to_string(),
-        None => return Err(From::from("No final jeopardy response")),
-    };
-
-    let category = final_rdr.headers()?[0].to_string();
-
-    Ok(FinalJeopardy {
-        clue,
-        response,
-        category,
-        wagers: HashMap::new(),
-        player_responses: HashMap::new(),
-    })
+    match c.status() {
+        Ok(_) => read_game(game_path),
+        Err(e) => Err(Box::new(e)),
+    }
 }
 
 async fn start_game(
     games: Arc<RwLock<Vec<Option<Arc<RwLock<Game>>>>>>,
     num: usize,
 ) -> WithStatus<String> {
-    if let Err(e) = ensure_game_exists(num) {
-        eprintln!("Error fetching game {}: {}", num, e);
-        eprintln!("(Couldn't ensure it exists)");
-        return warp::reply::with_status(
-            format!("Error: no game #{} found", num),
-            warp::http::StatusCode::NOT_FOUND,
-        );
-    }
-
-    let prefix = env::var(GAME_PREFIX_NAME).unwrap_or(DEFAULT_GAME_PREFIX.to_string());
-    let game_path = format!("{}{}.json", prefix, num);
-    let game_path = Path::new(&game_path);
-
-    let single_jeopardy = match read_round(clue_rdr, resp_rdr) {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("Error reading game {}: {}", num, e);
-            return warp::reply::with_status(
-                format!("Error loading game #{}: {}", num, e),
-                warp::http::StatusCode::INTERNAL_SERVER_ERROR,
-            );
-        }
-    };
-
-    let clue_rdr = match csv::Reader::from_path(game_dir.join("double_clues.csv")) {
-        Ok(r) => r,
+    let game_result = read_game_or_fetch(num.to_string());
+    let game_def = match game_result {
         Err(e) => {
             eprintln!("Error fetching game {}: {}", num, e);
+            eprintln!("(Couldn't ensure it exists)");
             return warp::reply::with_status(
-                format!("Error: no game #{} not found", num),
+                format!("Error: no game #{} found", num),
                 warp::http::StatusCode::NOT_FOUND,
             );
         }
-    };
-
-    let resp_rdr = match csv::Reader::from_path(game_dir.join("double_responses.csv")) {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("Error fetching game {}: {}", num, e);
-            return warp::reply::with_status(
-                format!("Error: no game #{} not found", num),
-                warp::http::StatusCode::NOT_FOUND,
-            );
-        }
-    };
-
-    let double_jeopardy = match read_round(clue_rdr, resp_rdr) {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("Error reading game {}: {}", num, e);
-            return warp::reply::with_status(
-                format!("Error loading game #{}: {}", num, e),
-                warp::http::StatusCode::INTERNAL_SERVER_ERROR,
-            );
-        }
-    };
-
-    let final_rdr = match csv::Reader::from_path(game_dir.join("final.csv")) {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("Error fetching game {}: {}", num, e);
-            return warp::reply::with_status(
-                format!("Error: game #{} not found", num),
-                warp::http::StatusCode::NOT_FOUND,
-            );
-        }
-    };
-
-    let final_jeopardy = match read_final(final_rdr) {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("Error fetching game {}: {}", num, e);
-            return warp::reply::with_status(
-                format!("Error: game #{} not found", num),
-                warp::http::StatusCode::NOT_FOUND,
-            );
-        }
+        Ok(g) => g,
     };
 
     let timestamp = match SystemTime::now().duration_since(UNIX_EPOCH) {
@@ -200,13 +97,16 @@ async fn start_game(
         state: State::new(),
         host_tx: None,
         board_tx: None,
-        single_jeopardy,
-        double_jeopardy,
-        final_jeopardy,
+        rounds: game_def.rounds,
         created: timestamp,
     };
 
-    game.state.categories = game.single_jeopardy.categories.clone();
+    game.state.categories = match &game.rounds[0] {
+        RoundType::DefaultRound { categories, .. } => {
+            categories.into_iter().map(|c| c.category.clone()).collect()
+        }
+        RoundType::FinalRound { category, .. } => vec![category.to_string()],
+    };
 
     games.push(Some(Arc::new(RwLock::new(game))));
 
@@ -262,7 +162,6 @@ async fn main() {
         .and(warp::path!("api" / "start" / usize))
         .and(games_filter.clone())
         .and_then(|num, games| async move {
-            print!("{}", num);
             return Ok::<WithStatus<String>, warp::Rejection>(start_game(games, num).await);
         });
 
@@ -306,12 +205,9 @@ async fn main() {
                 };
 
                 let game = game.read().await;
+                let round = &game.rounds[game.state.round_idx];
                 let players = game.state.players.keys().map(|s| s.to_owned()).collect();
-                let categories = match game.state.round {
-                    Round::Single => game.single_jeopardy.categories.to_vec(),
-                    Round::Double => game.double_jeopardy.categories.to_vec(),
-                    Round::Final => vec![game.final_jeopardy.category.clone()],
-                };
+                let categories = round.get_categories();
                 let resp = GameDetails {
                     players,
                     categories,

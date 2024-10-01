@@ -27,6 +27,16 @@ def get_game_with_id(game_id):
 
     return {'rounds': rounds}
 
+def get_default_max_wager_for_round(round_name):
+    if round_name == 'Jeopardy':
+        return 1000
+    if round_name == 'Double Jeopardy':
+        return 2000
+    if round_name == 'Final Jeopardy':
+        return 3000
+    return 1000
+
+
 def pull_default_from_table(table, name, round_multiplier=2):
     categories = [{'category': td.text, 'clues': []} for td in table.select("td.category_name")]
 
@@ -39,13 +49,13 @@ def pull_default_from_table(table, name, round_multiplier=2):
             response = td.select_one("em.correct_response").text or "This response was missing"
             is_daily_double = td.select_one("td.clue_value_daily_double") is not None
             categories[i]['clues'].append({'clue': clue, 'response': response, 'cost': cost, 'is_daily_double': is_daily_double})
-    return {'categories': categories, 'name': name, 'type': 'default'}
+    return {'categories': categories, 'name': name, 'round_type': 'DefaultRound', 'default_max_wager': get_default_max_wager_for_round(name)}
 
 def pull_final_from_table(table, name):
     category = table.select_one('td.category_name').text
     clue = table.select_one("td#clue_FJ").text
     response = table.select_one('em.correct_response').text
-    return {'category': category, 'clue': clue, 'response': response, 'type': 'final'}
+    return {'category': category, 'clue': clue, 'response': response, 'round_type': 'FinalRound', 'name': 'Final Jeopardy', 'default_max_wager': get_default_max_wager_for_round('Final Jeopardy')}
 
 
 if __name__ == '__main__':

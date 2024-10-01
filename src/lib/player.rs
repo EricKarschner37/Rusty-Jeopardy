@@ -1,11 +1,11 @@
-use std::{cmp, sync::Arc};
+use std::{cmp, default, sync::Arc};
 
 use futures_util::{SinkExt, StreamExt, TryFutureExt};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, RwLock};
 use warp::ws::{Message, WebSocket};
 
-use super::game::{BaseMessage, Game, Round, StateType};
+use super::game::{BaseMessage, Game, Round, RoundType, StateType};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
 #[derive(Serialize)]
@@ -61,10 +61,8 @@ impl Game {
                 .entry(name)
                 .and_modify(move |p| p.tx = Some(tx));
         } else {
-            self.final_jeopardy
-                .player_responses
-                .insert(name.clone(), None);
-            self.final_jeopardy.wagers.insert(name.clone(), None);
+            self.state.player_responses.insert(name.clone(), None);
+            self.state.wagers.insert(name.clone(), None);
             self.state.players.insert(
                 name.clone(),
                 Player {
@@ -124,27 +122,24 @@ impl Game {
             return;
         }
 
-        self.final_jeopardy
-            .player_responses
-            .insert(name, Some(response));
+        self.state.player_responses.insert(name, Some(response));
 
-        if self
-            .final_jeopardy
-            .player_responses
-            .values()
-            .all(Option::is_some)
-        {
+        if self.state.player_responses.values().all(Option::is_some) {
             self.evaluate_final_responses();
         }
     }
 
     fn get_max_wager(&self, player: &str) -> i32 {
         let buzzed_player_balance = self.state.players[player].balance;
-        match self.state.round {
-            Round::Single => cmp::max(buzzed_player_balance, 1000),
-            Round::Double => cmp::max(buzzed_player_balance, 2000),
-            Round::Final => cmp::max(buzzed_player_balance, 3000),
-        }
+        let default_max_wager = match self.rounds[self.state.round_idx] {
+            RoundType::DefaultRound {
+                default_max_wager, ..
+            } => default_max_wager,
+            RoundType::FinalRound {
+                default_max_wager, ..
+            } => default_max_wager,
+        };
+        cmp::max(buzzed_player_balance, default_max_wager)
     }
 
     fn wager(&mut self, player: String, wager: i32) {
@@ -193,11 +188,15 @@ impl Game {
             self.send_state();
             return;
         }
-        self.final_jeopardy.wagers.insert(player, Some(wager));
-        if self.final_jeopardy.wagers.values().all(|w| w.is_some()) {
+        self.state.wagers.insert(player, Some(wager));
+        let (clue, response) = match &self.rounds[self.state.round_idx] {
+            RoundType::DefaultRound { .. } => return,
+            RoundType::FinalRound { clue, response, .. } => (clue, response),
+        };
+        if self.state.wagers.values().all(|w| w.is_some()) {
             self.state.state_type = StateType::FinalClue;
-            self.state.clue = self.final_jeopardy.clue.clone();
-            self.state.response = self.final_jeopardy.response.clone();
+            self.state.clue = clue.clone();
+            self.state.response = response.clone();
             self.send_state();
         }
     }

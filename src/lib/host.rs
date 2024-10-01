@@ -10,7 +10,7 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 use warp::ws::{Message, WebSocket};
 
 use super::{
-    game::{BaseMessage, PlayerMessage, Round, StateType},
+    game::{BaseMessage, PlayerMessage, Round, RoundType, StateType},
     Game,
 };
 
@@ -147,7 +147,7 @@ impl Game {
                 };
             });
 
-            if self.state.round == Round::Final {
+            if let RoundType::FinalRound { .. } = self.rounds[self.state.round_idx] {
                 self.evaluate_final_responses();
                 self.send_state();
                 return;
