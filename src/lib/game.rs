@@ -51,6 +51,7 @@ pub struct BareCategory {
 }
 
 #[derive(Serialize)]
+#[serde(tag = "round_type")]
 pub enum BareRoundType {
     DefaultRound {
         categories: Vec<BareCategory>,
