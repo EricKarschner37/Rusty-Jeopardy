@@ -52,7 +52,7 @@ impl Game {
         self.state.state_type = StateType::Board;
         self.state.round_idx += 1;
         self.state.clues_shown = 0;
-        self.state.categories = self.rounds[self.state.round_idx].get_categories();
+        self.state.bare_round = self.rounds[self.state.round_idx].clone().to_bare_round();
         self.send_categories();
         self.send_state();
     }

@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use warp::ws::Message;
 
+use crate::GameDefinition;
+
 use super::player::Player;
 
 pub trait Round {
@@ -11,7 +13,7 @@ pub trait Round {
     fn get_name(&self) -> String;
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct Clue {
     pub cost: i32,
     pub clue: String,
@@ -19,13 +21,13 @@ pub struct Clue {
     pub is_daily_double: bool,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct Category {
     pub category: String,
     pub clues: Vec<Clue>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 #[serde(tag = "round_type")]
 pub enum RoundType {
     DefaultRound {
@@ -40,6 +42,64 @@ pub enum RoundType {
         response: String,
         default_max_wager: i32,
     },
+}
+
+#[derive(Serialize)]
+pub struct BareCategory {
+    pub category: String,
+    pub clue_costs: Vec<i32>,
+}
+
+#[derive(Serialize)]
+pub enum BareRoundType {
+    DefaultRound {
+        categories: Vec<BareCategory>,
+        name: String,
+        default_max_wager: i32,
+    },
+    FinalRound {
+        category: String,
+        name: String,
+        default_max_wager: i32,
+    },
+}
+
+impl RoundType {
+    pub fn to_bare_round(self) -> BareRoundType {
+        match self {
+            RoundType::DefaultRound {
+                categories,
+                name,
+                default_max_wager,
+            } => {
+                let categories = categories
+                    .into_iter()
+                    .map(|category| {
+                        let clue_costs = category.clues.into_iter().map(|clue| clue.cost).collect();
+                        BareCategory {
+                            clue_costs,
+                            category: category.category,
+                        }
+                    })
+                    .collect();
+                BareRoundType::DefaultRound {
+                    name,
+                    categories,
+                    default_max_wager,
+                }
+            }
+            RoundType::FinalRound {
+                category,
+                name,
+                default_max_wager,
+                ..
+            } => BareRoundType::FinalRound {
+                category,
+                name,
+                default_max_wager,
+            },
+        }
+    }
 }
 
 impl Round for RoundType {
@@ -208,7 +268,6 @@ impl Game {
 #[derive(Serialize)]
 pub struct State {
     pub state_type: StateType,
-    pub categories: Vec<String>,
     pub buzzers_open: bool,
     pub buzzed_player: Option<String>,
     pub active_player: Option<String>,
@@ -218,10 +277,10 @@ pub struct State {
     pub clue: String,
     pub response: String,
     pub players: HashMap<String, Player>,
-    pub round_name: String,
     pub clues_shown: u32,
     pub wagers: HashMap<String, Option<i32>>,
     pub player_responses: HashMap<String, Option<String>>,
+    pub bare_round: BareRoundType,
     pub round_idx: usize,
 }
 
@@ -236,31 +295,23 @@ pub enum StateType {
 }
 
 impl State {
-    pub fn new() -> Self {
+    pub fn new(first_round: &RoundType) -> Self {
         Self {
             state_type: StateType::Board,
-            categories: vec![
-                "Category 1".to_string(),
-                "Category 2".to_string(),
-                "Category 3".to_string(),
-                "Category 4".to_string(),
-                "Category 5".to_string(),
-                "Category 6".to_string(),
-            ],
             buzzers_open: false,
             buzzed_player: None,
             active_player: None,
             cost: 0,
-            round_idx: 0,
             category: "Welcome to Jeopardy!".to_string(),
             clue: "Please wait for the game to start.".to_string(),
             response: "I'm sure that'll be soon".to_string(),
             players: HashMap::new(),
             responded_players: HashSet::new(),
-            round_name: "Jeopardy! Round".to_string(),
             clues_shown: 0,
             wagers: HashMap::new(),
             player_responses: HashMap::new(),
+            bare_round: first_round.clone().to_bare_round(),
+            round_idx: 0,
         }
     }
 }

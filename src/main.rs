@@ -2,7 +2,6 @@ use lib::{board_connected, host_connected, player_connected, Game, Round, RoundT
 use serde::{Deserialize, Serialize};
 
 use std::{
-    collections::HashMap,
     env,
     error::Error,
     fs,
@@ -93,19 +92,12 @@ async fn start_game(
 
     let mut games = games.write().await;
 
-    let mut game = Game {
-        state: State::new(),
+    let game = Game {
+        state: State::new(&game_def.rounds[0]),
         host_tx: None,
         board_tx: None,
         rounds: game_def.rounds,
         created: timestamp,
-    };
-
-    game.state.categories = match &game.rounds[0] {
-        RoundType::DefaultRound { categories, .. } => {
-            categories.into_iter().map(|c| c.category.clone()).collect()
-        }
-        RoundType::FinalRound { category, .. } => vec![category.to_string()],
     };
 
     games.push(Some(Arc::new(RwLock::new(game))));
