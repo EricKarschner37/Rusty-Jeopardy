@@ -42,7 +42,6 @@ def pull_default_from_table(table, name, round_multiplier=2):
 
     clue_rows = table.find_all("tr", recursive=False)[1:] # The first row is categories
     for row_i, tr in enumerate(clue_rows):
-        if row_i == 0:
         clueEls = tr.select("td.clue")
         for i, td in enumerate(clueEls):
             cost = 100 * (row_i + 1) * round_multiplier
