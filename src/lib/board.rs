@@ -8,6 +8,8 @@ use tokio::sync::{
 };
 use warp::ws::{Message, WebSocket};
 
+use crate::lib::game::BareRoundType;
+
 use super::{
     game::{BaseMessage, PlayerMessage, Round, RoundType, StateType},
     Game,
@@ -48,24 +50,17 @@ impl Game {
         self.send_state();
     }
 
-    fn start_double(&mut self) {
-        self.state.state_type = StateType::Board;
-        self.state.round_idx += 1;
-        self.state.clues_shown = 0;
-        self.state.bare_round = self.rounds[self.state.round_idx].clone().to_bare_round();
-        self.send_categories();
-        self.send_state();
-    }
-
-    fn start_final(&mut self) {
-        self.state.state_type = StateType::FinalWager;
+    fn next_round(&mut self) {
         self.state.round_idx += 1;
         self.state.clues_shown = 0;
         let new_round = &self.rounds[self.state.round_idx];
-        self.state.category = match new_round {
-            RoundType::FinalRound { category, .. } => category.to_owned(),
-            _ => "Sorry, something went wrong.".to_owned(),
-        };
+        self.state.bare_round = new_round.clone().to_bare_round();
+        if let RoundType::FinalRound { category, .. } = new_round {
+            self.state.category = category.to_string();
+            self.state.state_type = StateType::FinalWager;
+        } else {
+            self.state.state_type = StateType::Board;
+        }
         self.send_state();
     }
 
@@ -185,8 +180,7 @@ pub async fn board_connected(
 
         let mut game = game.write().await;
         match msg.request.as_str() {
-            "start_double" => game.start_double(),
-            "start_final" => game.start_final(),
+            "next_round" => game.next_round(),
             "response" => game.show_response(),
             "board" => {
                 game.state.state_type = StateType::Board;
