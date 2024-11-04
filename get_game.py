@@ -5,6 +5,7 @@ import csv
 import sys
 import os
 import json
+import re
 
 def get_game_with_id(game_id):
     url = f"https://www.j-archive.com/showgame.php?game_id={game_id}"
@@ -14,16 +15,18 @@ def get_game_with_id(game_id):
     soup = BeautifulSoup(html)
     table = soup.select_one('div#jeopardy_round').select_one('table.round')
 
-    single_round_unparsed = soup.select_one('div#jeopardy_round').select_one('table.round')
-    single_round = pull_default_from_table(single_round_unparsed, 'Jeopardy')
+    rounds = []
 
-    double_round_unparsed = soup.select_one('div#double_jeopardy_round').select_one('table.round')
-    double_round = pull_default_from_table(double_round_unparsed, 'Double Jeopardy', 4)
-
-    final_round_unparsed = soup.select_one('div#final_jeopardy_round').select_one('table.final_round')
-    final_round = pull_final_from_table(final_round_unparsed, 'Final Jeopardy')
-
-    rounds = [single_round, double_round, final_round]
+    rounds_unparsed = soup.find_all('div', id=re.compile('.*jeopardy_round'))
+    for r in rounds_unparsed:
+        default_round = r.select_one('table.round')
+        title = r.select_one('h2').text
+        if default_round:
+            smallest_clue_value = int(r.select_one('td.clue_value').text[1:])
+            rounds.append(pull_default_from_table(default_round, name=title, round_multiplier=smallest_clue_value // 100))
+        final_round = r.select_one('table.final_round')
+        if final_round:
+            rounds.append(pull_final_from_table(final_round, name=title))
 
     return {'rounds': rounds}
 
@@ -42,7 +45,6 @@ def pull_default_from_table(table, name, round_multiplier=2):
 
     clue_rows = table.find_all("tr", recursive=False)[1:] # The first row is categories
     for row_i, tr in enumerate(clue_rows):
-        if row_i == 0:
         clueEls = tr.select("td.clue")
         for i, td in enumerate(clueEls):
             cost = 100 * (row_i + 1) * round_multiplier
