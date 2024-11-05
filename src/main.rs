@@ -1,121 +1,26 @@
-use lib::{board_connected, host_connected, player_connected, Game, Round, RoundType, State};
+use lib::{
+    handlers::{accept_board, start_game},
+    host_connected, player_connected, Game, Round, RoundType, State,
+};
+use opentelemetry::global;
+use opentelemetry_otlp::ExportConfig;
+use opentelemetry_otlp::TonicConfig;
+use opentelemetry_otlp::WithExportConfig;
+use opentelemetry_sdk::propagation::TraceContextPropagator;
+use opentelemetry_sdk::trace::TracerProvider;
+use opentelemetry_stdout::SpanExporter;
 use serde::{Deserialize, Serialize};
 
-use std::{
-    env,
-    error::Error,
-    fs,
-    path::Path,
-    process::Command,
-    sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::{error::Error, sync::Arc};
 use tokio::sync::RwLock;
 
-use warp::{reply::WithStatus, Filter};
+use warp::Filter;
 
 pub mod lib;
-
-const DEFAULT_GAME_PREFIX: &str = "games/";
-const GAME_PREFIX_NAME: &str = "JEOPARDY_GAME_ROOT";
 
 #[derive(Deserialize)]
 struct GameDefinition {
     rounds: Vec<RoundType>,
-}
-
-fn read_game(game_path: &Path) -> Result<GameDefinition, Box<dyn Error + Send>> {
-    let data = fs::read_to_string(game_path);
-    let data = match data {
-        Ok(string) => string,
-        Err(e) => return Err(Box::new(e)),
-    };
-    let res = serde_json::from_str(&data);
-    if let Err(e) = &res {
-        println!("{}", e);
-    }
-    match res {
-        Ok(def) => Ok(def),
-        Err(e) => Err(Box::new(e)),
-    }
-}
-
-fn read_game_or_fetch(game_name: String) -> Result<GameDefinition, Box<dyn Error + Send>> {
-    let prefix = env::var(GAME_PREFIX_NAME).unwrap_or(DEFAULT_GAME_PREFIX.to_string());
-    let game_path = format!("{}{}.json", prefix, &game_name);
-    println!("{}", game_path);
-    let game_path = Path::new(&game_path);
-
-    let game = read_game(game_path);
-    if let Ok(game) = game {
-        return Ok(game);
-    }
-
-    let mut c = Command::new("get_game.py");
-    c.arg(game_name);
-
-    match c.status() {
-        Ok(_) => read_game(game_path),
-        Err(e) => Err(Box::new(e)),
-    }
-}
-
-async fn start_game(
-    games: Arc<RwLock<Vec<Option<Arc<RwLock<Game>>>>>>,
-    num: usize,
-) -> WithStatus<String> {
-    let game_result = read_game_or_fetch(num.to_string());
-    let game_def = match game_result {
-        Err(e) => {
-            eprintln!("Error fetching game {}: {}", num, e);
-            eprintln!("(Couldn't ensure it exists)");
-            return warp::reply::with_status(
-                format!("Error: no game #{} found", num),
-                warp::http::StatusCode::NOT_FOUND,
-            );
-        }
-        Ok(g) => g,
-    };
-
-    let timestamp = match SystemTime::now().duration_since(UNIX_EPOCH) {
-        Ok(d) => d.as_millis(),
-        Err(e) => {
-            return warp::reply::with_status(
-                format!(
-                    "something went wrong getting the timestamp for the new game: {}",
-                    e
-                ),
-                warp::http::StatusCode::INTERNAL_SERVER_ERROR,
-            );
-        }
-    };
-
-    let mut games = games.write().await;
-
-    let game = Game {
-        state: State::new(&game_def.rounds[0]),
-        host_tx: None,
-        board_tx: None,
-        rounds: game_def.rounds,
-        created: timestamp,
-    };
-
-    games.push(Some(Arc::new(RwLock::new(game))));
-
-    let msg = GameCreatedMessage {
-        message: "Game created successfully",
-        gameIndex: games.len() - 1,
-    };
-
-    let resp = serde_json::to_string(&msg);
-    println!("started game");
-    match resp {
-        Ok(s) => warp::reply::with_status(s, warp::http::StatusCode::OK),
-        Err(e) => warp::reply::with_status(
-            format!("Sorry, something went wrong: {}", e),
-            warp::http::StatusCode::INTERNAL_SERVER_ERROR,
-        ),
-    }
 }
 
 async fn end_game(games: Arc<RwLock<Vec<Option<Arc<RwLock<Game>>>>>>, game_idx: usize) -> String {
@@ -125,12 +30,6 @@ async fn end_game(games: Arc<RwLock<Vec<Option<Arc<RwLock<Game>>>>>>, game_idx: 
         games[game_idx] = None;
     }
     "Success".to_string()
-}
-
-#[derive(Serialize)]
-struct GameCreatedMessage<'a> {
-    message: &'a str,
-    gameIndex: usize,
 }
 
 #[derive(Serialize)]
@@ -145,17 +44,29 @@ struct GameDetails {
     categories: Vec<String>,
 }
 
+fn init_tracer() {
+    // First, create a OTLP exporter builder. Configure it as you need.
+    let otlp_exporter = opentelemetry_otlp::new_exporter()
+        .tonic()
+        .with_endpoint("http://localhost:4317");
+    // Then pass it into pipeline builder
+    let _ = opentelemetry_otlp::new_pipeline()
+        .tracing()
+        .with_exporter(otlp_exporter)
+        .install_simple();
+}
+
 #[tokio::main]
 async fn main() {
+    init_tracer();
+
     let games: Arc<RwLock<Vec<Option<Arc<RwLock<Game>>>>>> =
         Arc::new(RwLock::new(Vec::with_capacity(10)));
     let games_filter = warp::any().map(move || games.clone());
     let start_route = warp::post()
         .and(warp::path!("api" / "start" / usize))
         .and(games_filter.clone())
-        .and_then(|num, games| async move {
-            return Ok::<WithStatus<String>, warp::Rejection>(start_game(games, num).await);
-        });
+        .and_then(start_game);
 
     let end_route = warp::post()
         .and(warp::path!("api" / "end" / usize))
@@ -234,13 +145,7 @@ async fn main() {
     let board_route = warp::path!("api" / "ws" / usize / "board")
         .and(warp::ws())
         .and(games_filter.clone())
-        .map(
-            |game_idx: usize,
-             ws: warp::ws::Ws,
-             games: Arc<RwLock<Vec<Option<Arc<RwLock<Game>>>>>>| {
-                ws.on_upgrade(move |ws| board_connected(games, game_idx, ws))
-            },
-        );
+        .map(accept_board);
 
     let cors = warp::cors::cors().allow_any_origin();
 
