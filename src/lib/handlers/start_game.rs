@@ -25,6 +25,7 @@ struct GameCreatedMessage<'a> {
 const DEFAULT_GAME_PREFIX: &str = "games/";
 const GAME_PREFIX_NAME: &str = "JEOPARDY_GAME_ROOT";
 
+#[tracing::instrument]
 pub async fn start_game(
     num: usize,
     games: AsyncGameList,

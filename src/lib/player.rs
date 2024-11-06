@@ -8,7 +8,7 @@ use warp::ws::{Message, WebSocket};
 use super::game::{BaseMessage, Game, Round, RoundType, StateType};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct Player {
     pub name: String,
     #[serde(skip_serializing)]

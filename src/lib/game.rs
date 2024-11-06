@@ -13,7 +13,7 @@ pub trait Round {
     fn get_name(&self) -> String;
 }
 
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, Debug)]
 pub struct Clue {
     pub cost: i32,
     pub clue: String,
@@ -21,13 +21,13 @@ pub struct Clue {
     pub is_daily_double: bool,
 }
 
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, Debug)]
 pub struct Category {
     pub category: String,
     pub clues: Vec<Clue>,
 }
 
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, Debug)]
 #[serde(tag = "round_type")]
 pub enum RoundType {
     DefaultRound {
@@ -44,13 +44,13 @@ pub enum RoundType {
     },
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct BareCategory {
     pub category: String,
     pub clue_costs: Vec<i32>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 #[serde(tag = "round_type")]
 pub enum BareRoundType {
     DefaultRound {
@@ -121,6 +121,7 @@ impl Round for RoundType {
     }
 }
 
+#[derive(Debug)]
 pub struct Game {
     pub rounds: Vec<RoundType>,
     pub state: State,
@@ -266,7 +267,7 @@ impl Game {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct State {
     pub state_type: StateType,
     pub buzzers_open: bool,
@@ -285,7 +286,7 @@ pub struct State {
     pub round_idx: usize,
 }
 
-#[derive(Serialize, PartialEq)]
+#[derive(Serialize, PartialEq, Debug)]
 pub enum StateType {
     Response,
     Clue,
