@@ -38,6 +38,7 @@ pub async fn start_game(
     let result = Ok::<WithStatus<String>, warp::Rejection>(create_game(games, num).await);
 
     span.set_status(Status::Ok);
+    span.end();
 
     result
 }

@@ -48,7 +48,7 @@ fn init_tracer() {
     // First, create a OTLP exporter builder. Configure it as you need.
     let otlp_exporter = opentelemetry_otlp::new_exporter()
         .tonic()
-        .with_endpoint("http://localhost:4317");
+        .with_endpoint("http://otel-collector:4318");
     // Then pass it into pipeline builder
     let _ = opentelemetry_otlp::new_pipeline()
         .tracing()

@@ -3,13 +3,12 @@ WORKDIR /usr/src/jeopardy
 COPY Cargo.lock ./
 COPY Cargo.toml ./
 COPY src ./src
-RUN cargo install --path .
+RUN rustup target add x86_64-unknown-linux-musl
+RUN cargo install --path . --target x86_64-unknown-linux-musl
 
 FROM alpine:latest
 COPY --from=builder /usr/local/cargo/bin/jeopardy /usr/local/bin/jeopardy
 COPY get_game.py /usr/local/bin/
-
-RUN apk add --update --no-cache gcompat
 
 RUN mkdir ./games
 ENV JEOPARDY_GAME_ROOT=games/
