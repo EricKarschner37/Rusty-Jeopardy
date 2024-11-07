@@ -16,10 +16,12 @@ use std::{
 use tokio::sync::RwLock;
 use warp::reply::WithStatus;
 
+use super::AsyncIdStore;
+
 #[derive(Serialize)]
 struct GameCreatedMessage<'a> {
     message: &'a str,
-    gameIndex: usize,
+    lobby_id: String,
 }
 
 const DEFAULT_GAME_PREFIX: &str = "games/";
@@ -29,19 +31,14 @@ const GAME_PREFIX_NAME: &str = "JEOPARDY_GAME_ROOT";
 pub async fn start_game(
     num: usize,
     games: AsyncGameList,
+    id_store: AsyncIdStore,
 ) -> Result<WithStatus<String>, warp::Rejection> {
-    let tracer = global::tracer("rusty_jeopardy");
-    let mut span = tracer
-        .span_builder("POST /api/start/:num")
-        .with_kind(SpanKind::Server)
-        .start(&tracer);
+    let id = id_store.write().await.take();
 
-    let result = Ok::<WithStatus<String>, warp::Rejection>(create_game(games, num).await);
-
-    span.set_status(Status::Ok);
-    span.end();
-
-    result
+    match id {
+        Some(id) => Ok(create_game(games, num, id).await),
+        None => Err(warp::reject()),
+    }
 }
 
 fn read_game(game_path: &Path) -> Result<GameDefinition, Box<dyn Error + Send>> {
@@ -80,7 +77,7 @@ fn read_game_or_fetch(game_name: String) -> Result<GameDefinition, Box<dyn Error
     }
 }
 
-async fn create_game(games: AsyncGameList, num: usize) -> WithStatus<String> {
+async fn create_game(games: AsyncGameList, num: usize, id: String) -> WithStatus<String> {
     let game_result = read_game_or_fetch(num.to_string());
     let game_def = match game_result {
         Err(e) => {
@@ -117,11 +114,11 @@ async fn create_game(games: AsyncGameList, num: usize) -> WithStatus<String> {
         created: timestamp,
     };
 
-    games.push(Some(Arc::new(RwLock::new(game))));
+    games.insert(id.clone(), Some(Arc::new(RwLock::new(game))));
 
     let msg = GameCreatedMessage {
         message: "Game created successfully",
-        gameIndex: games.len() - 1,
+        lobby_id: id,
     };
 
     let resp = serde_json::to_string(&msg);

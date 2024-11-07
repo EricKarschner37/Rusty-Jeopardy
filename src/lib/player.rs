@@ -5,7 +5,10 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, RwLock};
 use warp::ws::{Message, WebSocket};
 
-use super::game::{BaseMessage, Game, Round, RoundType, StateType};
+use super::{
+    game::{BaseMessage, Game, Round, RoundType, StateType},
+    AsyncGameList,
+};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
 #[derive(Serialize, Debug)]
@@ -202,12 +205,8 @@ impl Game {
     }
 }
 
-pub async fn player_connected(
-    games: Arc<RwLock<Vec<Option<Arc<RwLock<Game>>>>>>,
-    game_idx: usize,
-    ws: WebSocket,
-) {
-    let game = match games.read().await.get(game_idx) {
+pub async fn player_connected(games: AsyncGameList, lobby_id: String, ws: WebSocket) {
+    let game = match games.read().await.get(&lobby_id) {
         Some(Some(game)) => game.clone(),
         _ => {
             ws.close().await;
@@ -229,7 +228,7 @@ pub async fn player_connected(
 
         let msg = match msg.to_str() {
             Ok(s) => s,
-            Err(e) => {
+            Err(_) => {
                 eprintln!("websocket error: non-string message received");
                 return;
             }

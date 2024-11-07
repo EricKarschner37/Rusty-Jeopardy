@@ -1,17 +1,12 @@
-use std::sync::Arc;
-
 use futures_util::{SinkExt, StreamExt, TryFutureExt};
 use serde::Deserialize;
-use tokio::sync::{
-    mpsc::{self, UnboundedSender},
-    RwLock,
-};
+use tokio::sync::mpsc::{self, UnboundedSender};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use warp::ws::{Message, WebSocket};
 
 use super::{
-    game::{BaseMessage, PlayerMessage, Round, RoundType, StateType},
-    Game,
+    game::{BaseMessage, PlayerMessage, RoundType},
+    AsyncGameList, Game,
 };
 
 #[derive(Deserialize)]
@@ -20,12 +15,8 @@ struct CorrectMessage {
     correct: bool,
 }
 
-pub async fn host_connected(
-    games: Arc<RwLock<Vec<Option<Arc<RwLock<Game>>>>>>,
-    game_idx: usize,
-    ws: WebSocket,
-) {
-    let game = match games.read().await.get(game_idx) {
+pub async fn host_connected(games: AsyncGameList, lobby_id: String, ws: WebSocket) {
+    let game = match games.read().await.get(&lobby_id) {
         Some(Some(g)) => g.clone(),
         _ => {
             ws.close().await;
