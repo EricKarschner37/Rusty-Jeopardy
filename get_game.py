@@ -48,8 +48,14 @@ def pull_default_from_table(table, name, round_multiplier=2):
         clueEls = tr.select("td.clue")
         for i, td in enumerate(clueEls):
             cost = 100 * (row_i + 1) * round_multiplier
-            clue = td.select_one("td.clue_text").text or "This clue was missing"
-            response = td.select_one("em.correct_response").text or "This response was missing"
+            clueEl =td.select_one("td.clue_text") 
+            responseEl = td.select_one("em.correct_response")
+            clue = "This clue was missing"
+            response = "This response was missing"
+            if clueEl:
+                clue = clueEl.text or "This clue was missing"
+            if responseEl:
+                response = responseEl.text or "This response was missing"
             is_daily_double = td.select_one("td.clue_value_daily_double") is not None
             categories[i]['clues'].append({'clue': clue, 'response': response, 'cost': cost, 'is_daily_double': is_daily_double})
     return {'categories': categories, 'name': name, 'round_type': 'DefaultRound', 'default_max_wager': get_default_max_wager_for_round(name)}
