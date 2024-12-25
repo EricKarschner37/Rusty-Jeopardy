@@ -31,11 +31,11 @@ def get_game_with_id(game_id):
     return {'rounds': rounds}
 
 def get_default_max_wager_for_round(round_name):
-    if round_name == 'Jeopardy':
+    if round_name == 'Jeopardy! Round':
         return 1000
-    if round_name == 'Double Jeopardy':
+    if round_name == 'Double Jeopardy! Round':
         return 2000
-    if round_name == 'Final Jeopardy':
+    if round_name == 'Final Jeopardy' or round_name == 'Triple Jeopardy! Round':
         return 3000
     return 1000
 
