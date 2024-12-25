@@ -12,7 +12,7 @@ use crate::lib::game::BareRoundType;
 
 use super::{
     game::{BaseMessage, PlayerMessage, Round, RoundType, StateType},
-    Game,
+    AsyncGameList, Game,
 };
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
@@ -109,12 +109,8 @@ impl Game {
     }
 }
 
-pub async fn board_connected(
-    games: Arc<RwLock<Vec<Option<Arc<RwLock<Game>>>>>>,
-    game_idx: usize,
-    ws: WebSocket,
-) {
-    let game = match games.read().await.get(game_idx) {
+pub async fn board_connected(games: AsyncGameList, lobby_id: String, ws: WebSocket) {
+    let game = match games.read().await.get(&lobby_id) {
         Some(Some(g)) => g.clone(),
         _ => {
             ws.close().await;

@@ -1,5 +1,7 @@
+use crate::lib::AsyncGameList;
+use crate::lib::IdStore;
 use lib::{
-    handlers::{accept_board, start_game},
+    handlers::{accept_board, start_game, AsyncIdStore},
     host_connected, player_connected, Game, Round, RoundType, State,
 };
 use opentelemetry::trace::TracerProvider;
@@ -16,6 +18,7 @@ use opentelemetry_semantic_conventions::resource::{
 };
 use opentelemetry_semantic_conventions::SCHEMA_URL;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use tracing::Level;
 use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::layer::SubscriberExt;
@@ -33,18 +36,18 @@ struct GameDefinition {
     rounds: Vec<RoundType>,
 }
 
-async fn end_game(games: Arc<RwLock<Vec<Option<Arc<RwLock<Game>>>>>>, game_idx: usize) -> String {
+async fn end_game(games: AsyncGameList, lobby_id: String) -> String {
     let mut games = games.write().await;
-    if let Some(Some(game)) = games.get(game_idx) {
+    if let Some(Some(game)) = games.get(&lobby_id) {
         game.write().await.end();
-        games[game_idx] = None;
+        games.insert(lobby_id, None);
     }
     "Success".to_string()
 }
 
 #[derive(Serialize)]
-struct GameOption {
-    game_idx: usize,
+struct Lobby {
+    lobby_id: String,
     created: u128,
 }
 
@@ -97,91 +100,85 @@ fn init_tracing_subscriber() {
 #[tokio::main]
 async fn main() {
     init_tracing_subscriber();
+    let id_store: AsyncIdStore = Arc::new(RwLock::new(IdStore::new()));
 
-    let games: Arc<RwLock<Vec<Option<Arc<RwLock<Game>>>>>> =
-        Arc::new(RwLock::new(Vec::with_capacity(10)));
+    let games: AsyncGameList = Arc::new(RwLock::new(HashMap::new()));
     let games_filter = warp::any().map(move || games.clone());
+
+    let id_store_filter = warp::any().map(move || id_store.clone());
     let start_route = warp::post()
         .and(warp::path!("api" / "start" / usize))
         .and(games_filter.clone())
+        .and(id_store_filter)
         .and_then(start_game)
         .with(warp::trace::named("start_game"));
 
     let end_route = warp::post()
-        .and(warp::path!("api" / "end" / usize))
+        .and(warp::path!("api" / "end" / String))
         .and(games_filter.clone())
-        .and_then(|game_idx, games| async move {
-            Ok::<String, warp::Rejection>(end_game(games, game_idx).await)
+        .and_then(|lobby_id, games| async move {
+            Ok::<String, warp::Rejection>(end_game(games, lobby_id).await)
         });
 
     let games_route = warp::path!("api" / "games")
         .and(games_filter.clone())
-        .and_then(
-            |games: Arc<RwLock<Vec<Option<Arc<RwLock<Game>>>>>>| async move {
-                let games = games.read().await;
-                let mut resp: Vec<GameOption> = Vec::with_capacity(games.len());
-                for (i, game) in games.iter().enumerate() {
-                    if let Some(game) = game {
-                        resp.push(GameOption {
-                            game_idx: i,
-                            created: game.read().await.created,
-                        })
-                    }
+        .and_then(|games: AsyncGameList| async move {
+            let games = games.read().await;
+            let mut resp: Vec<Lobby> = Vec::with_capacity(games.len());
+            for (lobby_id, game) in games.iter() {
+                if let Some(game) = game {
+                    let game = game.read().await;
+                    resp.push(Lobby {
+                        lobby_id: lobby_id.to_string(),
+                        created: game.created,
+                    })
                 }
+            }
 
-                match serde_json::to_string(&resp) {
-                    Ok(s) => Ok(s),
-                    Err(_) => Err(warp::reject()),
-                }
-            },
-        );
+            match serde_json::to_string(&resp) {
+                Ok(s) => Ok(s),
+                Err(_) => Err(warp::reject()),
+            }
+        });
 
-    let game_route = warp::path!("api" / "game" / usize)
+    let game_route = warp::path!("api" / "game" / String)
         .and(games_filter.clone())
-        .and_then(
-            |game_idx: usize, games: Arc<RwLock<Vec<Option<Arc<RwLock<Game>>>>>>| async move {
-                let games = games.read().await;
-                let game = match games.get(game_idx) {
-                    Some(Some(g)) => g,
-                    _ => return Err(warp::reject()),
-                };
+        .and_then(|lobby_id: String, games: AsyncGameList| async move {
+            let games = games.read().await;
+            let game = match games.get(&lobby_id) {
+                Some(Some(g)) => g,
+                _ => return Err(warp::reject()),
+            };
 
-                let game = game.read().await;
-                let round = &game.rounds[game.state.round_idx];
-                let players = game.state.players.keys().map(|s| s.to_owned()).collect();
-                let categories = round.get_categories();
-                let resp = GameDetails {
-                    players,
-                    categories,
-                };
-                match serde_json::to_string(&resp) {
-                    Ok(s) => Ok(s),
-                    Err(_) => Err(warp::reject()),
-                }
-            },
-        );
+            let game = game.read().await;
+            let round = &game.rounds[game.state.round_idx];
+            let players = game.state.players.keys().map(|s| s.to_owned()).collect();
+            let categories = round.get_categories();
+            let resp = GameDetails {
+                players,
+                categories,
+            };
+            match serde_json::to_string(&resp) {
+                Ok(s) => Ok(s),
+                Err(_) => Err(warp::reject()),
+            }
+        });
 
-    let buzzer_route = warp::path!("api" / "ws" / usize / "buzzer")
+    let buzzer_route = warp::path!("api" / "ws" / String / "buzzer")
         .and(warp::ws())
         .and(games_filter.clone())
-        .map(
-            |game_idx, ws: warp::ws::Ws, games: Arc<RwLock<Vec<Option<Arc<RwLock<Game>>>>>>| {
-                ws.on_upgrade(move |ws| player_connected(games, game_idx, ws))
-            },
-        );
+        .map(|lobby_id: String, ws: warp::ws::Ws, games: AsyncGameList| {
+            ws.on_upgrade(move |ws| player_connected(games, lobby_id, ws))
+        });
 
-    let host_route = warp::path!("api" / "ws" / usize / "host")
+    let host_route = warp::path!("api" / "ws" / String / "host")
         .and(warp::ws())
         .and(games_filter.clone())
-        .map(
-            |game_idx: usize,
-             ws: warp::ws::Ws,
-             games: Arc<RwLock<Vec<Option<Arc<RwLock<Game>>>>>>| {
-                ws.on_upgrade(move |ws| host_connected(games, game_idx, ws))
-            },
-        );
+        .map(|lobby_id: String, ws: warp::ws::Ws, games: AsyncGameList| {
+            ws.on_upgrade(move |ws| host_connected(games, lobby_id, ws))
+        });
 
-    let board_route = warp::path!("api" / "ws" / usize / "board")
+    let board_route = warp::path!("api" / "ws" / String / "board")
         .and(warp::ws())
         .and(games_filter.clone())
         .map(accept_board);

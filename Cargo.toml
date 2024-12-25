@@ -13,6 +13,7 @@ opentelemetry-otlp = { version = "0.25", features = ["default"] }
 opentelemetry_sdk = { version = "0.25", features = ["rt-tokio"] }
 opentelemetry-semantic-conventions = "0.25"
 opentelemetry-stdout = { version = "0.25", features = ["trace"] }
+rand = "0.8.5"
 serde = { version = "1.0.150", features = ["derive"] }
 serde_json = "1.0.89"
 tokio = { version = "1.23.0", features = ["full"] }
