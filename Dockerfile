@@ -1,4 +1,5 @@
-FROM rust:latest as builder
+FROM rust:1.71-alpine as builder
+RUN apk add openssl-dev musl-dev
 WORKDIR /usr/src/jeopardy
 COPY Cargo.lock ./
 COPY Cargo.toml ./
@@ -7,16 +8,13 @@ RUN rustup target add x86_64-unknown-linux-musl
 RUN cargo install --path . --target x86_64-unknown-linux-musl
 
 FROM alpine:latest
+RUN apk add --update --no-cache python3 py3-pip py3-virtualenv
 COPY --from=builder /usr/local/cargo/bin/jeopardy /usr/local/bin/jeopardy
-COPY get_game.py /usr/local/bin/
 
-RUN mkdir ./games
-ENV JEOPARDY_GAME_ROOT=games/
-ENV J_GAME_ROOT=games
-RUN chmod ugo+w games -R
+ENV JEOPARDY_GAME_ROOT=/games/
+ENV J_GAME_ROOT=/games
 
 ENV PYTHONUNBUFFERED=1
-RUN apk add --update --no-cache python3 py3-pip py3-virtualenv
 COPY requirements.txt .
 RUN python3 -m venv /opt/venv && source /opt/venv/bin/activate
 ENV PATH="/opt/venv/bin:$PATH"
