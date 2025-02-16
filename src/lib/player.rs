@@ -6,7 +6,7 @@ use tokio::sync::{mpsc, RwLock};
 use warp::ws::{Message, WebSocket};
 
 use super::{
-    game::{BaseMessage, Game, Round, RoundType, StateType},
+    game::{BaseMessage, Game, RevealMessage, Round, RoundType, StateType},
     AsyncGameList,
 };
 use tokio_stream::wrappers::UnboundedReceiverStream;
@@ -180,7 +180,6 @@ impl Game {
         if self.state.state_type == StateType::DailyDouble {
             self.state.cost = wager;
             self.state.state_type = StateType::Clue;
-            self.state.active_player = None;
             self.state.buzzers_open = true;
             self.buzz(&player);
 
@@ -289,8 +288,9 @@ pub async fn player_connected(games: AsyncGameList, lobby_id: String, ws: WebSoc
                 }
             };
 
+            let mut game = game.write().await;
             match msg.request.as_str() {
-                "buzz" => game.write().await.buzz(&m.name),
+                "buzz" => game.buzz(&m.name),
                 "response" => {
                     let msg: ResponseMessage = match serde_json::from_str(txt) {
                         Ok(m) => m,
@@ -299,7 +299,7 @@ pub async fn player_connected(games: AsyncGameList, lobby_id: String, ws: WebSoc
                             break;
                         }
                     };
-                    game.write().await.response(m.name.clone(), msg.response);
+                    game.response(m.name.clone(), msg.response);
                 }
                 "wager" => {
                     let msg: WagerMessage = match serde_json::from_str(txt) {
@@ -309,7 +309,22 @@ pub async fn player_connected(games: AsyncGameList, lobby_id: String, ws: WebSoc
                             break;
                         }
                     };
-                    game.write().await.wager(m.name.clone(), msg.amount);
+                    game.wager(m.name.clone(), msg.amount);
+                }
+                "reveal" => {
+                    let msg: RevealMessage = match serde_json::from_str(txt) {
+                        Ok(m) => m,
+                        Err(e) => {
+                            eprintln!("Deserialization Error: {}", e);
+                            continue;
+                        }
+                    };
+                    if game.state.active_player != Some(m.name.clone()) {
+                        return;
+                    };
+
+                    game.state.state_type = StateType::Clue;
+                    game.reveal(msg.row, msg.col);
                 }
                 _ => {}
             }

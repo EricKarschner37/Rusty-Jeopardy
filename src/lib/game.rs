@@ -154,6 +154,13 @@ struct CategoriesMessage<'a> {
     categories: &'a Vec<String>,
 }
 
+#[derive(Deserialize)]
+pub struct RevealMessage {
+    pub request: String,
+    pub row: usize,
+    pub col: usize,
+}
+
 impl Game {
     pub fn send_categories(&self) {
         let categories = self.rounds[self.state.round_idx].get_categories();
@@ -264,6 +271,33 @@ impl Game {
 
     pub fn end(&mut self) {
         self.send_to_all(Message::close());
+    }
+
+    pub fn reveal(&mut self, row: usize, col: usize) {
+        let board = &self.rounds[self.state.round_idx];
+        let categories = match board {
+            RoundType::FinalRound { .. } => return,
+            RoundType::DefaultRound { categories, .. } => categories,
+        };
+
+        if row > 5 || col > 6 {
+            return;
+        }
+
+        let bitset_key = 1 << (row * 6 + col);
+
+        let clue_obj = &categories[col].clues[row];
+        self.state.clue = clue_obj.clue.clone();
+        self.state.response = clue_obj.response.clone();
+        self.state.category = categories[col].category.clone();
+        self.state.cost = clue_obj.cost;
+        self.state.state_type = if clue_obj.is_daily_double {
+            StateType::DailyDouble
+        } else {
+            StateType::Clue
+        };
+
+        self.state.clues_shown |= bitset_key;
     }
 }
 

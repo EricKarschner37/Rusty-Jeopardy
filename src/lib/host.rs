@@ -144,6 +144,10 @@ impl Game {
                 return;
             }
 
+            if correct {
+                self.state.active_player = Some(player.clone());
+            }
+
             if correct || self.state.responded_players.len() == self.state.players.keys().len() {
                 self.state.buzzed_player = None;
                 self.state.buzzers_open = false;

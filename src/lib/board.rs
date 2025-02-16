@@ -1,17 +1,11 @@
-use std::sync::Arc;
-
 use futures_util::{SinkExt, StreamExt, TryFutureExt};
+use rand::seq::{IteratorRandom, SliceRandom};
 use serde::Deserialize;
-use tokio::sync::{
-    mpsc::{self, UnboundedSender},
-    RwLock,
-};
+use tokio::sync::mpsc::{self, UnboundedSender};
 use warp::ws::{Message, WebSocket};
 
-use crate::lib::game::BareRoundType;
-
 use super::{
-    game::{BaseMessage, PlayerMessage, Round, RoundType, StateType},
+    game::{BaseMessage, PlayerMessage, RevealMessage, RoundType, StateType},
     AsyncGameList, Game,
 };
 use tokio_stream::wrappers::UnboundedReceiverStream;
@@ -24,10 +18,8 @@ struct PlayerBalanceMessage {
 }
 
 #[derive(Deserialize)]
-struct RevealMessage {
+struct RandomizeActivePlayerMessage {
     request: String,
-    row: usize,
-    col: usize,
 }
 
 impl Game {
@@ -79,33 +71,6 @@ impl Game {
             .entry(player)
             .and_modify(|p| p.balance = amount);
         self.send_state();
-    }
-
-    fn reveal(&mut self, row: usize, col: usize) {
-        let board = &self.rounds[self.state.round_idx];
-        let categories = match board {
-            RoundType::FinalRound { .. } => return,
-            RoundType::DefaultRound { categories, .. } => categories,
-        };
-
-        if row > 5 || col > 6 {
-            return;
-        }
-
-        let bitset_key = 1 << (row * 6 + col);
-
-        let clue_obj = &categories[col].clues[row];
-        self.state.clue = clue_obj.clue.clone();
-        self.state.response = clue_obj.response.clone();
-        self.state.category = categories[col].category.clone();
-        self.state.cost = clue_obj.cost;
-        self.state.state_type = if clue_obj.is_daily_double {
-            StateType::DailyDouble
-        } else {
-            StateType::Clue
-        };
-
-        self.state.clues_shown |= bitset_key;
     }
 }
 
@@ -215,6 +180,10 @@ pub async fn board_connected(games: AsyncGameList, lobby_id: String, ws: WebSock
 
                 game.state.state_type = StateType::Clue;
                 game.reveal(msg.row, msg.col);
+            }
+            "randomize_active_player" => {
+                let active_player = game.state.players.keys().choose(&mut rand::thread_rng());
+                game.state.active_player = active_player.cloned();
             }
             _ => {}
         };
