@@ -3,17 +3,18 @@ use crate::Error;
 use crate::Game;
 use crate::GameDefinition;
 use crate::State;
-use opentelemetry::trace::{Span, SpanKind, Status};
-use opentelemetry::{global, trace::Tracer};
+use opentelemetry::propagation::TextMapPropagator;
+use opentelemetry_sdk::propagation::TraceContextPropagator;
+use reqwest::header::{HeaderName, HeaderValue};
 use serde::Serialize;
-use std::path::Path;
+use std::{collections::HashMap, path::Path};
 use std::{
     env, fs,
-    process::Command,
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::RwLock;
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 use warp::reply::WithStatus;
 
 use super::AsyncIdStore;
@@ -57,7 +58,7 @@ fn read_game(game_path: &Path) -> Result<GameDefinition, Box<dyn Error + Send>> 
     }
 }
 
-fn read_game_or_fetch(game_name: String) -> Result<GameDefinition, Box<dyn Error + Send>> {
+async fn read_game_or_fetch(game_name: String) -> Result<GameDefinition, Box<dyn Error + Send>> {
     let prefix = env::var(GAME_PREFIX_NAME).unwrap_or(DEFAULT_GAME_PREFIX.to_string());
     let game_path = format!("{}{}.json", prefix, &game_name);
     println!("{}", game_path);
@@ -68,10 +69,38 @@ fn read_game_or_fetch(game_name: String) -> Result<GameDefinition, Box<dyn Error
         return Ok(game);
     }
 
-    let mut c = Command::new("get_game.py");
-    c.arg(game_name);
+    let span = tracing::Span::current();
+    let context = span.context();
+    let propagator = TraceContextPropagator::new();
+    let mut fields = HashMap::new();
+    propagator.inject_context(&context, &mut fields);
+    let headers = fields
+        .into_iter()
+        .map(|(k, v)| {
+            (
+                HeaderName::try_from(k).unwrap(),
+                HeaderValue::try_from(v).unwrap(),
+            )
+        })
+        .collect();
 
-    match c.status() {
+    let url = format!("http://fetchardy/{}", &game_name);
+    let client = reqwest::Client::builder().use_rustls_tls().build();
+    let resp = client
+        .expect("couldn't unwrap client")
+        .get(url)
+        .headers(headers)
+        .send()
+        .await;
+
+    let game_id = match resp {
+        Ok(resp) => resp.text().await,
+        Err(e) => return Err(Box::new(e)),
+    };
+
+    println!("{game_id:#?}");
+
+    match game_id {
         Ok(_) => read_game(game_path),
         Err(e) => Err(Box::new(e)),
     }
@@ -79,7 +108,7 @@ fn read_game_or_fetch(game_name: String) -> Result<GameDefinition, Box<dyn Error
 
 async fn create_game(games: AsyncGameList, num: usize, id: String) -> WithStatus<String> {
     let game_result = read_game_or_fetch(num.to_string());
-    let game_def = match game_result {
+    let game_def = match game_result.await {
         Err(e) => {
             eprintln!("Error fetching game {}: {}", num, e);
             eprintln!("(Couldn't ensure it exists)");
