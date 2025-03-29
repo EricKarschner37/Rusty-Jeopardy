@@ -19,6 +19,7 @@ pub struct Clue {
     pub clue: String,
     pub response: String,
     pub is_daily_double: bool,
+    pub media_url: Option<String>,
 }
 
 #[derive(Deserialize, Clone, Debug)]
