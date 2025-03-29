@@ -297,6 +297,7 @@ impl Game {
         } else {
             StateType::Clue
         };
+        self.state.media_url = clue_obj.media_url.clone();
 
         self.state.clues_shown |= bitset_key;
     }
@@ -312,6 +313,7 @@ pub struct State {
     pub cost: i32,
     pub category: String,
     pub clue: String,
+    pub media_url: Option<String>,
     pub response: String,
     pub players: HashMap<String, Player>,
     pub clues_shown: u32,
@@ -341,6 +343,7 @@ impl State {
             cost: 0,
             category: "Welcome to Jeopardy!".to_string(),
             clue: "Please wait for the game to start.".to_string(),
+            media_url: None,
             response: "I'm sure that'll be soon".to_string(),
             players: HashMap::new(),
             responded_players: HashSet::new(),
