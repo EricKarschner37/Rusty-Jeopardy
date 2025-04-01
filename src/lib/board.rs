@@ -75,7 +75,7 @@ impl Game {
 }
 
 pub async fn board_connected(games: AsyncGameList, lobby_id: String, ws: WebSocket) {
-    let game = match games.read().await.get(&lobby_id) {
+    let game_lock = match games.read().await.get(&lobby_id) {
         Some(Some(g)) => g.clone(),
         _ => {
             ws.close().await;
@@ -86,7 +86,7 @@ pub async fn board_connected(games: AsyncGameList, lobby_id: String, ws: WebSock
     let (tx, rx) = mpsc::unbounded_channel();
     let mut rx = UnboundedReceiverStream::new(rx);
 
-    if game.write().await.board_connected(tx).is_err() {
+    if game_lock.write().await.board_connected(tx).is_err() {
         // There is already a board connected
         ws_tx.send(Message::close()).await;
         return;
@@ -104,7 +104,7 @@ pub async fn board_connected(games: AsyncGameList, lobby_id: String, ws: WebSock
     });
 
     {
-        let game = game.read().await;
+        let game = game_lock.read().await;
         game.send_categories();
         game.send_state();
     }
@@ -123,7 +123,7 @@ pub async fn board_connected(games: AsyncGameList, lobby_id: String, ws: WebSock
             Err(_) => {
                 if msg.is_close() {
                     println!("board client disconnected");
-                    game.write().await.board_disconnected();
+                    game_lock.write().await.board_disconnected();
                     break;
                 }
                 eprintln!("Received non-text Websocket message");
@@ -139,7 +139,7 @@ pub async fn board_connected(games: AsyncGameList, lobby_id: String, ws: WebSock
             }
         };
 
-        let mut game = game.write().await;
+        let mut game = game_lock.write().await;
         match msg.request.as_str() {
             "next_round" => game.next_round(),
             "response" => game.show_response(),
@@ -179,7 +179,7 @@ pub async fn board_connected(games: AsyncGameList, lobby_id: String, ws: WebSock
                 };
 
                 game.state.state_type = StateType::Clue;
-                game.reveal(msg.row, msg.col);
+                game.reveal(msg.row, msg.col, game_lock.clone());
             }
             "randomize_active_player" => {
                 let active_player = game.state.players.keys().choose(&mut rand::thread_rng());
@@ -190,5 +190,5 @@ pub async fn board_connected(games: AsyncGameList, lobby_id: String, ws: WebSock
         game.send_state();
     }
 
-    game.write().await.board_disconnected();
+    game_lock.write().await.board_disconnected();
 }

@@ -6,7 +6,8 @@ use tokio::sync::{mpsc, RwLock};
 use warp::ws::{Message, WebSocket};
 
 use super::{
-    game::{BaseMessage, Game, RevealMessage, Round, RoundType, StateType},
+    game::{BaseMessage, Game, GameMode, RevealMessage, Round, RoundType, StateType},
+    host::CorrectMessage,
     AsyncGameList,
 };
 use tokio_stream::wrappers::UnboundedReceiverStream;
@@ -202,10 +203,32 @@ impl Game {
             self.send_state();
         }
     }
+
+    fn declare_has_responded(&mut self, player: &str) {
+        if self.mode != GameMode::Hostless {
+            return;
+        }
+        self.state.responded_players.insert(player.to_string());
+    }
+
+    fn player_report_correct(&mut self, player: &str, correct: bool) {
+        if self.mode != GameMode::Hostless
+            || !self.state.responded_players.contains(player)
+            || self
+                .state
+                .buzzed_player
+                .as_ref()
+                .is_some_and(|p| p == player)
+        {
+            return;
+        }
+
+        self.correct(correct)
+    }
 }
 
 pub async fn player_connected(games: AsyncGameList, lobby_id: String, ws: WebSocket) {
-    let game = match games.read().await.get(&lobby_id) {
+    let game_lock = match games.read().await.get(&lobby_id) {
         Some(Some(game)) => game.clone(),
         _ => {
             ws.close().await;
@@ -252,9 +275,10 @@ pub async fn player_connected(games: AsyncGameList, lobby_id: String, ws: WebSoc
             }
         });
 
+        let player_name = m.name;
         {
-            let mut game = game.write().await;
-            if let Err(_) = game.register_player(&m.name, tx) {
+            let mut game = game_lock.write().await;
+            if let Err(_) = game.register_player(&player_name, tx) {
                 return;
             }
             game.send_state();
@@ -273,7 +297,10 @@ pub async fn player_connected(games: AsyncGameList, lobby_id: String, ws: WebSoc
                 Ok(s) => s,
                 Err(_) => {
                     if msg.is_close() {
-                        game.write().await.player_disconnected(m.name.clone());
+                        game_lock
+                            .write()
+                            .await
+                            .player_disconnected(player_name.clone());
                     }
                     eprintln!("websocket error: non-string message received");
                     continue;
@@ -288,9 +315,9 @@ pub async fn player_connected(games: AsyncGameList, lobby_id: String, ws: WebSoc
                 }
             };
 
-            let mut game = game.write().await;
+            let mut game = game_lock.write().await;
             match msg.request.as_str() {
-                "buzz" => game.buzz(&m.name),
+                "buzz" => game.buzz(&player_name),
                 "response" => {
                     let msg: ResponseMessage = match serde_json::from_str(txt) {
                         Ok(m) => m,
@@ -299,7 +326,7 @@ pub async fn player_connected(games: AsyncGameList, lobby_id: String, ws: WebSoc
                             break;
                         }
                     };
-                    game.response(m.name.clone(), msg.response);
+                    game.response(player_name.clone(), msg.response);
                 }
                 "wager" => {
                     let msg: WagerMessage = match serde_json::from_str(txt) {
@@ -309,7 +336,7 @@ pub async fn player_connected(games: AsyncGameList, lobby_id: String, ws: WebSoc
                             break;
                         }
                     };
-                    game.wager(m.name.clone(), msg.amount);
+                    game.wager(player_name.clone(), msg.amount);
                 }
                 "reveal" => {
                     let msg: RevealMessage = match serde_json::from_str(txt) {
@@ -319,17 +346,28 @@ pub async fn player_connected(games: AsyncGameList, lobby_id: String, ws: WebSoc
                             continue;
                         }
                     };
-                    if game.state.active_player != Some(m.name.clone()) {
+                    if game.state.active_player != Some(player_name.clone()) {
                         return;
                     };
 
                     game.state.state_type = StateType::Clue;
-                    game.reveal(msg.row, msg.col);
+                    game.reveal(msg.row, msg.col, game_lock.clone());
+                }
+                "correct" => {
+                    let msg: CorrectMessage = match serde_json::from_str(txt) {
+                        Ok(m) => m,
+                        Err(e) => {
+                            eprintln!("Deserialization Error: {}", e);
+                            break;
+                        }
+                    };
+
+                    game.player_report_correct(&player_name, msg.correct);
                 }
                 _ => {}
             }
         }
 
-        game.write().await.player_disconnected(m.name);
+        game_lock.write().await.player_disconnected(player_name);
     }
 }

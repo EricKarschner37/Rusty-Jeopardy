@@ -10,9 +10,9 @@ use super::{
 };
 
 #[derive(Deserialize)]
-struct CorrectMessage {
+pub struct CorrectMessage {
     request: String,
-    correct: bool,
+    pub correct: bool,
 }
 
 pub async fn host_connected(games: AsyncGameList, lobby_id: String, ws: WebSocket) {
@@ -75,8 +75,8 @@ pub async fn host_connected(games: AsyncGameList, lobby_id: String, ws: WebSocke
         };
 
         match msg.request.as_str() {
-            "open" => game.write().await.set_buzzers_open(true),
-            "close" => game.write().await.set_buzzers_open(false),
+            "open" => game.write().await.set_buzzers_open(true, game.clone()),
+            "close" => game.write().await.set_buzzers_open(false, game.clone()),
             "correct" => {
                 let msg: CorrectMessage = match serde_json::from_str(txt) {
                     Ok(m) => m,
@@ -107,11 +107,6 @@ pub async fn host_connected(games: AsyncGameList, lobby_id: String, ws: WebSocke
 }
 
 impl Game {
-    fn set_buzzers_open(&mut self, open: bool) {
-        self.state.buzzers_open = open;
-        self.send_state();
-    }
-
     fn host_connected(&mut self, tx: UnboundedSender<Message>) -> Result<(), ()> {
         if self.host_tx.is_some() {
             Err(())
@@ -126,40 +121,6 @@ impl Game {
             tx.send(Message::close());
         }
         self.host_tx = None;
-    }
-
-    fn correct(&mut self, correct: bool) {
-        if let Some(player) = &self.state.buzzed_player {
-            self.state.players.entry(player.clone()).and_modify(|p| {
-                p.balance += if correct {
-                    self.state.cost
-                } else {
-                    -self.state.cost
-                };
-            });
-
-            if let RoundType::FinalRound { .. } = self.rounds[self.state.round_idx] {
-                self.evaluate_final_responses();
-                self.send_state();
-                return;
-            }
-
-            if correct {
-                self.state.active_player = Some(player.clone());
-            }
-
-            if correct || self.state.responded_players.len() == self.state.players.keys().len() {
-                self.state.buzzed_player = None;
-                self.state.buzzers_open = false;
-                self.show_response();
-            } else {
-                self.state.buzzed_player = None;
-                self.state.buzzers_open = true;
-                self.send_state();
-            }
-        } else {
-            self.state.buzzers_open = true;
-        }
     }
 
     fn player(&mut self, player: String) {

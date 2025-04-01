@@ -1,10 +1,15 @@
-use std::collections::{HashMap, HashSet};
+use core::time;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+    thread,
+    time::{Duration, SystemTime},
+};
 
+use futures_util::{future::BoxFuture, FutureExt};
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, RwLock};
 use warp::ws::Message;
-
-use crate::GameDefinition;
 
 use super::player::Player;
 
@@ -129,6 +134,14 @@ pub struct Game {
     pub host_tx: Option<mpsc::UnboundedSender<Message>>,
     pub board_tx: Option<mpsc::UnboundedSender<Message>>,
     pub created: u128,
+    pub mode: GameMode,
+}
+
+#[derive(Deserialize, Debug, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum GameMode {
+    Host,
+    Hostless,
 }
 
 #[derive(Deserialize)]
@@ -274,7 +287,27 @@ impl Game {
         self.send_to_all(Message::close());
     }
 
-    pub fn reveal(&mut self, row: usize, col: usize) {
+    pub fn set_buzzers_open(&mut self, open: bool, game_lock: Arc<RwLock<Game>>) {
+        self.state.buzzers_open = open;
+        if self.mode == GameMode::Hostless && open {
+            let timer = Duration::from_secs(10);
+            self.state.timer_end_secs = Some(get_utc_now(Some(timer)));
+            set_timeout(timer, move || {
+                {
+                    let game_lock = game_lock.clone();
+                    async move {
+                        let mut game = game_lock.write().await;
+                        game.set_buzzers_open(false, game_lock.clone());
+                        game.state.timer_end_secs = None;
+                    }
+                }
+                .boxed()
+            })
+        }
+        self.send_state();
+    }
+
+    pub fn reveal(&mut self, row: usize, col: usize, game_lock: Arc<RwLock<Game>>) {
         let board = &self.rounds[self.state.round_idx];
         let categories = match board {
             RoundType::FinalRound { .. } => return,
@@ -300,7 +333,79 @@ impl Game {
         self.state.media_url = clue_obj.media_url.clone();
 
         self.state.clues_shown |= bitset_key;
+
+        if self.mode == GameMode::Hostless {
+            let timer = Duration::from_secs(10);
+            self.state.timer_end_secs = Some(get_utc_now(Some(timer)));
+            set_timeout(timer, move || {
+                {
+                    let game_lock = game_lock.clone();
+                    async move {
+                        let mut game = game_lock.write().await;
+                        game.set_buzzers_open(true, game_lock.clone());
+                        game.state.timer_end_secs = None;
+                    }
+                }
+                .boxed()
+            })
+        }
     }
+
+    pub fn correct(&mut self, correct: bool) {
+        if let Some(player) = &self.state.buzzed_player {
+            self.state.players.entry(player.clone()).and_modify(|p| {
+                p.balance += if correct {
+                    self.state.cost
+                } else {
+                    -self.state.cost
+                };
+            });
+
+            if let RoundType::FinalRound { .. } = self.rounds[self.state.round_idx] {
+                self.evaluate_final_responses();
+                self.send_state();
+                return;
+            }
+
+            if correct {
+                self.state.active_player = Some(player.clone());
+            }
+
+            if correct || self.state.responded_players.len() == self.state.players.keys().len() {
+                self.state.buzzed_player = None;
+                self.state.buzzers_open = false;
+                self.show_response();
+            } else {
+                self.state.buzzed_player = None;
+                self.state.buzzers_open = true;
+                self.send_state();
+            }
+        } else {
+            self.state.buzzers_open = true;
+        }
+    }
+}
+
+fn get_utc_now(offset: Option<Duration>) -> u64 {
+    let offset = match offset {
+        Some(offset) => offset,
+        None => Duration::new(0, 0),
+    };
+    (SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        + offset)
+        .as_secs()
+}
+
+fn set_timeout<F>(timeout: Duration, mut callback: F)
+where
+    F: (FnMut() -> BoxFuture<'static, ()>) + std::marker::Send + 'static,
+{
+    thread::spawn(move || {
+        thread::sleep(timeout);
+        callback()
+    });
 }
 
 #[derive(Serialize, Debug)]
@@ -321,6 +426,7 @@ pub struct State {
     pub player_responses: HashMap<String, Option<String>>,
     pub bare_round: BareRoundType,
     pub round_idx: usize,
+    pub timer_end_secs: Option<u64>,
 }
 
 #[derive(Serialize, PartialEq, Debug)]
@@ -352,6 +458,7 @@ impl State {
             player_responses: HashMap::new(),
             bare_round: first_round.clone().to_bare_round(),
             round_idx: 0,
+            timer_end_secs: None,
         }
     }
 }

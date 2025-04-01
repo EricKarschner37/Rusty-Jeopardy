@@ -110,6 +110,8 @@ async fn main() {
         .and(warp::path!("api" / "start" / usize))
         .and(games_filter.clone())
         .and(id_store_filter)
+        .and(warp::body::content_length_limit(1024*32))
+        .and(warp::filters::body::bytes())
         .and_then(start_game)
         .with(warp::trace::named("start_game"));
 

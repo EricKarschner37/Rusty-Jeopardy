@@ -1,3 +1,4 @@
+use crate::lib::game::GameMode;
 use crate::lib::AsyncGameList;
 use crate::Error;
 use crate::Game;
@@ -6,6 +7,7 @@ use crate::State;
 use opentelemetry::propagation::TextMapPropagator;
 use opentelemetry_sdk::propagation::TraceContextPropagator;
 use reqwest::header::{HeaderName, HeaderValue};
+use serde::Deserialize;
 use serde::Serialize;
 use std::{collections::HashMap, path::Path};
 use std::{
@@ -28,16 +30,30 @@ struct GameCreatedMessage<'a> {
 const DEFAULT_GAME_PREFIX: &str = "games/";
 const GAME_PREFIX_NAME: &str = "JEOPARDY_GAME_ROOT";
 
+#[derive(Deserialize)]
+struct GameOptions {
+    mode: GameMode,
+}
+
+const DEFAULT_GAME_OPTIONS: GameOptions = GameOptions { mode: GameMode::Host };
+
 #[tracing::instrument]
 pub async fn start_game(
     num: usize,
     games: AsyncGameList,
     id_store: AsyncIdStore,
+    body: bytes::Bytes,
 ) -> Result<WithStatus<String>, warp::Rejection> {
     let id = id_store.write().await.take();
 
+    let result = String::from_utf8(body.to_vec()).map(|d| serde_json::from_str::<GameOptions>(&d));
+    let options = match result {
+        Ok(Ok(options)) => options,
+        _ => DEFAULT_GAME_OPTIONS,
+    };
+
     match id {
-        Some(id) => Ok(create_game(games, num, id).await),
+        Some(id) => Ok(create_game(games, num, id, options).await),
         None => Err(warp::reject()),
     }
 }
@@ -106,7 +122,7 @@ async fn read_game_or_fetch(game_name: String) -> Result<GameDefinition, Box<dyn
     }
 }
 
-async fn create_game(games: AsyncGameList, num: usize, id: String) -> WithStatus<String> {
+async fn create_game(games: AsyncGameList, num: usize, id: String, options: GameOptions) -> WithStatus<String> {
     let game_result = read_game_or_fetch(num.to_string());
     let game_def = match game_result.await {
         Err(e) => {
@@ -141,6 +157,7 @@ async fn create_game(games: AsyncGameList, num: usize, id: String) -> WithStatus
         board_tx: None,
         rounds: game_def.rounds,
         created: timestamp,
+        mode: options.mode,
     };
 
     games.insert(id.clone(), Some(Arc::new(RwLock::new(game))));
