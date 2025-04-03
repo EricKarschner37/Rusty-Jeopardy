@@ -1,5 +1,6 @@
 use crate::lib::AsyncGameList;
 use crate::lib::IdStore;
+use lib::GameMode;
 use lib::{
     handlers::{accept_board, start_game, AsyncIdStore},
     host_connected, player_connected, Game, Round, RoundType, State,
@@ -55,6 +56,7 @@ struct Lobby {
 struct GameDetails {
     players: Vec<String>,
     categories: Vec<String>,
+    mode: GameMode,
 }
 
 fn resource() -> Resource {
@@ -110,7 +112,7 @@ async fn main() {
         .and(warp::path!("api" / "start" / usize))
         .and(games_filter.clone())
         .and(id_store_filter)
-        .and(warp::body::content_length_limit(1024*32))
+        .and(warp::body::content_length_limit(1024 * 32))
         .and(warp::filters::body::bytes())
         .and_then(start_game)
         .with(warp::trace::named("start_game"));
@@ -156,9 +158,11 @@ async fn main() {
             let round = &game.rounds[game.state.round_idx];
             let players = game.state.players.keys().map(|s| s.to_owned()).collect();
             let categories = round.get_categories();
+            let mode = game.mode.clone();
             let resp = GameDetails {
                 players,
                 categories,
+                mode,
             };
             match serde_json::to_string(&resp) {
                 Ok(s) => Ok(s),

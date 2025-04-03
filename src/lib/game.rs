@@ -1,4 +1,3 @@
-use core::time;
 use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
@@ -137,7 +136,7 @@ pub struct Game {
     pub mode: GameMode,
 }
 
-#[derive(Deserialize, Debug, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum GameMode {
     Host,
