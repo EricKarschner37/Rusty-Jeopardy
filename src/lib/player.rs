@@ -346,11 +346,10 @@ pub async fn player_connected(games: AsyncGameList, lobby_id: String, ws: WebSoc
                             continue;
                         }
                     };
-                    if game.state.active_player != Some(player_name.clone()) {
+                    if game.state.active_player.as_deref() != Some(&player_name) {
                         return;
                     };
 
-                    game.state.state_type = StateType::Clue;
                     game.reveal(msg.row, msg.col, game_lock.clone());
                 }
                 "correct" => {

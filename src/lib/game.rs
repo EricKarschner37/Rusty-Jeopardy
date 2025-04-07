@@ -307,15 +307,15 @@ impl Game {
     }
 
     pub fn reveal(&mut self, row: usize, col: usize, game_lock: Arc<RwLock<Game>>) {
+        if row > 5 || col > 6 {
+            return;
+        }
+
         let board = &self.rounds[self.state.round_idx];
         let categories = match board {
             RoundType::FinalRound { .. } => return,
             RoundType::DefaultRound { categories, .. } => categories,
         };
-
-        if row > 5 || col > 6 {
-            return;
-        }
 
         let bitset_key = 1 << (row * 6 + col);
 
@@ -332,6 +332,7 @@ impl Game {
         self.state.media_url = clue_obj.media_url.clone();
 
         self.state.clues_shown |= bitset_key;
+        self.state.state_type = StateType::Clue;
 
         if self.mode == GameMode::Hostless {
             let timer = Duration::from_secs(10);

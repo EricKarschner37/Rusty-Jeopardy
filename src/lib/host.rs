@@ -5,7 +5,7 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 use warp::ws::{Message, WebSocket};
 
 use super::{
-    game::{BaseMessage, PlayerMessage, RoundType},
+    game::{BaseMessage, PlayerMessage, RevealMessage, RoundType, StateType},
     AsyncGameList, Game,
 };
 
@@ -16,7 +16,7 @@ pub struct CorrectMessage {
 }
 
 pub async fn host_connected(games: AsyncGameList, lobby_id: String, ws: WebSocket) {
-    let game = match games.read().await.get(&lobby_id) {
+    let game_lock = match games.read().await.get(&lobby_id) {
         Some(Some(g)) => g.clone(),
         _ => {
             ws.close().await;
@@ -27,7 +27,7 @@ pub async fn host_connected(games: AsyncGameList, lobby_id: String, ws: WebSocke
     let (tx, rx) = mpsc::unbounded_channel();
     let mut rx = UnboundedReceiverStream::new(rx);
 
-    if game.write().await.host_connected(tx).is_err() {
+    if game_lock.write().await.host_connected(tx).is_err() {
         // There is already a host connected
         ws_tx.send(Message::close()).await;
         return;
@@ -44,7 +44,7 @@ pub async fn host_connected(games: AsyncGameList, lobby_id: String, ws: WebSocke
         }
     });
 
-    game.write().await.send_state();
+    game_lock.write().await.send_state();
 
     while let Some(msg) = ws_rx.next().await {
         let msg = match msg {
@@ -74,9 +74,10 @@ pub async fn host_connected(games: AsyncGameList, lobby_id: String, ws: WebSocke
             }
         };
 
+        let mut game = game_lock.write().await;
         match msg.request.as_str() {
-            "open" => game.write().await.set_buzzers_open(true, game.clone()),
-            "close" => game.write().await.set_buzzers_open(false, game.clone()),
+            "open" => game.set_buzzers_open(true, game_lock.clone()),
+            "close" => game.set_buzzers_open(false, game_lock.clone()),
             "correct" => {
                 let msg: CorrectMessage = match serde_json::from_str(txt) {
                     Ok(m) => m,
@@ -86,7 +87,7 @@ pub async fn host_connected(games: AsyncGameList, lobby_id: String, ws: WebSocke
                     }
                 };
 
-                game.write().await.correct(msg.correct);
+                game.correct(msg.correct);
             }
             "player" => {
                 let msg: PlayerMessage = match serde_json::from_str(txt) {
@@ -97,13 +98,25 @@ pub async fn host_connected(games: AsyncGameList, lobby_id: String, ws: WebSocke
                     }
                 };
 
-                game.write().await.player(msg.player);
+                game.player(msg.player);
+            }
+            "reveal" => {
+                let msg: RevealMessage = match serde_json::from_str(txt) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        eprintln!("Deserialization Error: {}", e);
+                        continue;
+                    }
+                };
+
+                game.reveal(msg.row, msg.col, game_lock.clone());
             }
             _ => {}
-        }
+        };
+        game.send_state();
     }
 
-    game.write().await.host_disconnected();
+    game_lock.write().await.host_disconnected();
 }
 
 impl Game {
