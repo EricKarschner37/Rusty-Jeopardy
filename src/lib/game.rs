@@ -9,6 +9,7 @@ use futures_util::{future::BoxFuture, FutureExt};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, RwLock};
 use warp::ws::Message;
+use futures::executor::block_on;
 
 use super::player::Player;
 
@@ -191,7 +192,6 @@ impl Game {
             }
         };
 
-        println!("{}", cat_str);
         let msg = Message::text(cat_str);
         self.send_to_all(msg);
     }
@@ -338,16 +338,16 @@ impl Game {
             let timer = Duration::from_secs(10);
             self.state.timer_end_secs = Some(get_utc_now(Some(timer)));
             set_timeout(timer, move || {
-                {
                     let game_lock = game_lock.clone();
                     async move {
                         let mut game = game_lock.write().await;
                         game.set_buzzers_open(true, game_lock.clone());
                         game.state.timer_end_secs = None;
+                        game.send_state();
                     }
-                }
                 .boxed()
-            })
+            }
+            )
         }
     }
 
@@ -404,7 +404,7 @@ where
 {
     thread::spawn(move || {
         thread::sleep(timeout);
-        callback()
+        block_on(callback())
     });
 }
 
