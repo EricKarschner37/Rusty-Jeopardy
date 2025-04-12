@@ -222,7 +222,7 @@ impl Game {
         );
         if self.mode != GameMode::Hostless
             || !self.state.responded_players.contains(player)
-            || self
+            || !self
                 .state
                 .buzzed_player
                 .as_ref()
