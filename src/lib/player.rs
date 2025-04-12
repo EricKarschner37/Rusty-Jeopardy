@@ -212,6 +212,14 @@ impl Game {
     }
 
     fn player_report_correct(&mut self, player: &str, correct: bool) {
+        println!(
+            "{}, {}\n",
+            !self.state.responded_players.contains(player),
+            self.state
+                .buzzed_player
+                .as_ref()
+                .is_some_and(|p| p == player),
+        );
         if self.mode != GameMode::Hostless
             || !self.state.responded_players.contains(player)
             || self
