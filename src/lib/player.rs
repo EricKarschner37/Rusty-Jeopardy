@@ -371,6 +371,7 @@ pub async fn player_connected(games: AsyncGameList, lobby_id: String, ws: WebSoc
                 }
                 _ => {}
             }
+            game.send_state()
         }
 
         game_lock.write().await.player_disconnected(player_name);

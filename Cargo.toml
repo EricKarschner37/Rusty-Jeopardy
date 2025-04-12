@@ -24,3 +24,4 @@ tracing-subscriber = "0.3"
 tracing-opentelemetry = "0.26"
 warp = "0.3.3"
 bytes = "1.10.1"
+futures = { version = "0.3.31", features = ["executor"] }
