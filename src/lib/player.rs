@@ -347,7 +347,7 @@ pub async fn player_connected(games: AsyncGameList, lobby_id: String, ws: WebSoc
                         }
                     };
                     if game.state.active_player.as_deref() != Some(&player_name) {
-                        return;
+                        continue;
                     };
 
                     game.reveal(msg.row, msg.col, game_lock.clone());
@@ -362,6 +362,12 @@ pub async fn player_connected(games: AsyncGameList, lobby_id: String, ws: WebSoc
                     };
 
                     game.player_report_correct(&player_name, msg.correct);
+                }
+                "responded" => {
+                    if game.mode != GameMode::Hostless {
+                        continue;
+                    }
+                    game.declare_has_responded(&player_name);
                 }
                 _ => {}
             }
