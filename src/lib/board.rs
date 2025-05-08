@@ -145,6 +145,7 @@ pub async fn board_connected(games: AsyncGameList, lobby_id: String, ws: WebSock
             "response" => game.show_response(),
             "board" => {
                 game.state.state_type = StateType::Board;
+                game.state.responded_players.clear();
                 game.send_state();
             }
             "remove" => {
