@@ -212,10 +212,11 @@ impl Game {
     }
 
     fn player_report_correct(&mut self, player: &str, correct: bool) {
+        println!("{:?}", self.state.buzzed_player);
         println!(
             "{}, {}\n",
             !self.state.responded_players.contains(player),
-            self.state
+            !self.state
                 .buzzed_player
                 .as_ref()
                 .is_some_and(|p| p == player),

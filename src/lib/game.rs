@@ -332,7 +332,6 @@ impl Game {
         self.state.media_url = clue_obj.media_url.clone();
 
         self.state.clues_shown |= bitset_key;
-        self.state.state_type = StateType::Clue;
 
         if self.mode == GameMode::Hostless {
             let timer = Duration::from_secs(10);
@@ -352,6 +351,7 @@ impl Game {
     }
 
     pub fn correct(&mut self, correct: bool) {
+        println!("in correct handler");
         if let Some(player) = &self.state.buzzed_player {
             self.state.players.entry(player.clone()).and_modify(|p| {
                 p.balance += if correct {
