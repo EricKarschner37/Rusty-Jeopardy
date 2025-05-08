@@ -97,7 +97,6 @@ impl Game {
 
         self.state.buzzers_open = false;
         self.state.buzzed_player = Some(name.to_string());
-        self.state.responded_players.insert(name.to_string());
         self.send_state();
     }
 
