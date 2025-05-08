@@ -351,7 +351,7 @@ impl Game {
         }
     }
 
-    pub fn correct(&mut self, correct: bool) {
+    pub fn correct(&mut self, correct: bool, game_lock: Arc<RwLock<Game>>) {
         if let Some(player) = &self.state.buzzed_player {
             self.state.players.entry(player.clone()).and_modify(|p| {
                 p.balance += if correct {
@@ -377,7 +377,7 @@ impl Game {
                 self.show_response();
             } else {
                 self.state.buzzed_player = None;
-                self.state.buzzers_open = true;
+                self.set_buzzers_open(true, game_lock.clone());
                 self.send_state();
             }
         } else {

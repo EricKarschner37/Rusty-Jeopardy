@@ -210,7 +210,7 @@ impl Game {
         self.state.responded_players.insert(player.to_string());
     }
 
-    fn player_report_correct(&mut self, player: &str, correct: bool) {
+    fn player_report_correct(&mut self, player: &str, correct: bool, game_lock: Arc<RwLock<Game>>) {
         println!(
             "{}, {}\n",
             !self.state.responded_players.contains(player),
@@ -230,7 +230,7 @@ impl Game {
             return;
         }
 
-        self.correct(correct)
+        self.correct(correct, game_lock)
     }
 }
 
@@ -368,7 +368,7 @@ pub async fn player_connected(games: AsyncGameList, lobby_id: String, ws: WebSoc
                         }
                     };
 
-                    game.player_report_correct(&player_name, msg.correct);
+                    game.player_report_correct(&player_name, msg.correct, game_lock.clone());
                 }
                 "responded" => {
                     if game.mode != GameMode::Hostless {

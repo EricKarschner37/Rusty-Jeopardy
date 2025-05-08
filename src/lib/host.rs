@@ -87,7 +87,7 @@ pub async fn host_connected(games: AsyncGameList, lobby_id: String, ws: WebSocke
                     }
                 };
 
-                game.correct(msg.correct);
+                game.correct(msg.correct, game_lock.clone());
             }
             "player" => {
                 let msg: PlayerMessage = match serde_json::from_str(txt) {
