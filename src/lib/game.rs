@@ -353,6 +353,7 @@ impl Game {
 
     pub fn correct(&mut self, correct: bool, game_lock: Arc<RwLock<Game>>) {
         if let Some(player) = &self.state.buzzed_player {
+            self.state.responded_players.insert(player.clone());
             self.state.players.entry(player.clone()).and_modify(|p| {
                 p.balance += if correct {
                     self.state.cost
