@@ -12,7 +12,7 @@ use super::{
 };
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone)]
 pub struct Player {
     pub name: String,
     #[serde(skip_serializing)]
@@ -184,7 +184,9 @@ impl Game {
             self.buzz(&player);
 
             for p in self.state.players.keys() {
-                self.state.responded_players.insert(p.to_string());
+                if Some(p) != self.state.active_player.as_ref() {
+                    self.state.responded_players.insert(p.to_string());
+                }
             }
 
             self.send_state();
@@ -214,7 +216,8 @@ impl Game {
         println!(
             "{}, {}\n",
             !self.state.responded_players.contains(player),
-            !self.state
+            !self
+                .state
                 .buzzed_player
                 .as_ref()
                 .is_some_and(|p| p == player),
@@ -378,7 +381,7 @@ pub async fn player_connected(games: AsyncGameList, lobby_id: String, ws: WebSoc
                 }
                 _ => {}
             }
-            game.send_state()
+            game.send_state();
         }
 
         game_lock.write().await.player_disconnected(player_name);

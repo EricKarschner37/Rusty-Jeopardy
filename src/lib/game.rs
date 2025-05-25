@@ -5,11 +5,11 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use futures::executor::block_on;
 use futures_util::{future::BoxFuture, FutureExt};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, RwLock};
 use warp::ws::Message;
-use futures::executor::block_on;
 
 use super::player::Player;
 
@@ -50,13 +50,13 @@ pub enum RoundType {
     },
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone)]
 pub struct BareCategory {
     pub category: String,
     pub clue_costs: Vec<i32>,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone)]
 #[serde(tag = "round_type")]
 pub enum BareRoundType {
     DefaultRound {
@@ -175,6 +175,17 @@ pub struct RevealMessage {
     pub col: usize,
 }
 
+fn to_state_message(state: &State) -> Result<Message, serde_json::Error> {
+    let state = StateMessage {
+        message: "state",
+        state,
+    };
+
+    let state_str = serde_json::to_string(&state)?;
+
+    return Result::Ok(Message::text(state_str));
+}
+
 impl Game {
     pub fn send_categories(&self) {
         let categories = self.rounds[self.state.round_idx].get_categories();
@@ -196,36 +207,51 @@ impl Game {
         self.send_to_all(msg);
     }
 
-    fn send_to_all(&self, msg: Message) {
-        if let Some(tx) = self.board_tx.as_ref() {
-            tx.send(msg.clone());
+    fn get_filtered_state_for_player(&self, player_name: &str) -> State {
+        let mut state_cpy = self.state.clone();
+        if !self.state.responded_players.contains(player_name) {
+            state_cpy.response = "".to_string();
         }
+
+        return state_cpy;
+    }
+
+    fn send_to_all(&self, msg: Message) {
+        self.send_to_host(msg.clone());
+        self.send_to_board(msg.clone());
         for player in self.state.players.values() {
             if let Some(tx) = player.tx.as_ref() {
-                tx.send(msg.clone());
+                let _ = tx.send(msg.clone());
             }
-        }
-        if let Some(tx) = self.host_tx.as_ref() {
-            tx.send(msg);
         }
     }
 
-    pub fn send_state(&self) {
-        let state = StateMessage {
-            message: "state",
-            state: &self.state,
-        };
+    fn send_to_host(&self, msg: Message) {
+        if let Some(tx) = self.host_tx.as_ref() {
+            let _ = tx.send(msg);
+        }
+    }
 
-        let state_str = match serde_json::to_string(&state) {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!("Error serializing state: {}", e);
-                return;
+    fn send_to_board(&self, msg: Message) {
+        if let Some(tx) = self.board_tx.as_ref() {
+            let _ = tx.send(msg.clone());
+        }
+    }
+
+    pub fn send_state(&self) -> Result<(), serde_json::Error> {
+        let state_msg = to_state_message(&self.state)?;
+        self.send_to_host(state_msg.clone());
+        self.send_to_board(state_msg.clone());
+        for player in self.state.players.values() {
+            if let Some(tx) = player.tx.as_ref() {
+                let state_msg = to_state_message(&self.get_filtered_state_for_player(&player.name));
+                if let Ok(state_msg) = state_msg {
+                    let _ = tx.send(state_msg.clone());
+                }
             }
-        };
+        }
 
-        let state_msg = Message::text(state_str);
-        self.send_to_all(state_msg);
+        Ok(())
     }
 
     pub fn evaluate_final_responses(&mut self) {
@@ -337,16 +363,15 @@ impl Game {
             let timer = Duration::from_secs(10);
             self.state.timer_end_secs = Some(get_utc_now(Some(timer)));
             set_timeout(timer, move || {
-                    let game_lock = game_lock.clone();
-                    async move {
-                        let mut game = game_lock.write().await;
-                        game.set_buzzers_open(true, game_lock.clone());
-                        game.state.timer_end_secs = None;
-                        game.send_state();
-                    }
+                let game_lock = game_lock.clone();
+                async move {
+                    let mut game = game_lock.write().await;
+                    game.set_buzzers_open(true, game_lock.clone());
+                    game.state.timer_end_secs = None;
+                    game.send_state();
+                }
                 .boxed()
-            }
-            )
+            })
         }
     }
 
@@ -408,7 +433,7 @@ where
     });
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone)]
 pub struct State {
     pub state_type: StateType,
     pub buzzers_open: bool,
@@ -429,7 +454,7 @@ pub struct State {
     pub timer_end_secs: Option<u64>,
 }
 
-#[derive(Serialize, PartialEq, Debug)]
+#[derive(Serialize, PartialEq, Debug, Clone)]
 pub enum StateType {
     Response,
     Clue,
