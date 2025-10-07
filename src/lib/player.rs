@@ -132,19 +132,6 @@ impl Game {
         }
     }
 
-    fn get_max_wager(&self, player: &str) -> i32 {
-        let buzzed_player_balance = self.state.players[player].balance;
-        let default_max_wager = match self.rounds[self.state.round_idx] {
-            RoundType::DefaultRound {
-                default_max_wager, ..
-            } => default_max_wager,
-            RoundType::FinalRound {
-                default_max_wager, ..
-            } => default_max_wager,
-        };
-        cmp::max(buzzed_player_balance, default_max_wager)
-    }
-
     fn wager(&mut self, player: String, wager: i32) {
         let max = self.get_max_wager(&player);
         let msg: PlayerInputResponseMessage = if wager > max {
@@ -193,15 +180,8 @@ impl Game {
             return;
         }
         self.state.wagers.insert(player, Some(wager));
-        let (clue, response) = match &self.rounds[self.state.round_idx] {
-            RoundType::DefaultRound { .. } => return,
-            RoundType::FinalRound { clue, response, .. } => (clue, response),
-        };
-        if self.state.wagers.values().all(|w| w.is_some()) {
-            self.state.state_type = StateType::FinalClue;
-            self.state.clue = clue.clone();
-            self.state.response = response.clone();
-            self.send_state();
+        if self.state.state_type == StateType::FinalWager {
+            self.show_final_clue();
         }
     }
 

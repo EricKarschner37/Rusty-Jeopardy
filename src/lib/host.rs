@@ -111,6 +111,7 @@ pub async fn host_connected(games: AsyncGameList, lobby_id: String, ws: WebSocke
 
                 game.reveal(msg.row, msg.col, game_lock.clone());
             }
+            "continue" => game.force_continue(),
             _ => {}
         };
         game.send_state();

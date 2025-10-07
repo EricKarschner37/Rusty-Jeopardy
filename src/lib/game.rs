@@ -3,6 +3,7 @@ use std::{
     sync::Arc,
     thread,
     time::{Duration, SystemTime},
+    cmp,
 };
 
 use futures::executor::block_on;
@@ -332,6 +333,32 @@ impl Game {
         self.send_state();
     }
 
+    pub fn force_continue(&mut self) {
+        if self.state.state_type == StateType::FinalWager {
+            let default_max_wager = match self.rounds[self.state.round_idx] {
+                RoundType::DefaultRound {
+                    default_max_wager, ..
+                } => default_max_wager,
+                RoundType::FinalRound {
+                    default_max_wager, ..
+                } => default_max_wager,
+            };
+            for (player, wager) in self.state.wagers.iter_mut() {
+                if *wager == None {
+                    *wager = Some(default_max_wager);
+                }
+            }
+            self.show_final_clue()
+        } else if self.state.state_type == StateType::FinalClue {
+            for (player, wager) in self.state.player_responses.iter_mut() {
+                if *wager == None {
+                    *wager = Some("didn't respond :(".to_string());
+                }
+            }
+            self.evaluate_final_responses();
+        }
+    }
+
     pub fn reveal(&mut self, row: usize, col: usize, game_lock: Arc<RwLock<Game>>) {
         if row > 5 || col > 6 {
             return;
@@ -408,6 +435,30 @@ impl Game {
         } else {
             self.state.buzzers_open = true;
         }
+    }
+
+    pub fn get_max_wager(&self, player: &str) -> i32 {
+        let buzzed_player_balance = self.state.players[player].balance;
+        let default_max_wager = match self.rounds[self.state.round_idx] {
+            RoundType::DefaultRound {
+                default_max_wager, ..
+            } => default_max_wager,
+            RoundType::FinalRound {
+                default_max_wager, ..
+            } => default_max_wager,
+        };
+        cmp::max(buzzed_player_balance, default_max_wager)
+    }
+
+    pub fn show_final_clue(&mut self) {
+        let (clue, response) = match &self.rounds[self.state.round_idx] {
+            RoundType::DefaultRound { .. } => return,
+            RoundType::FinalRound { clue, response, .. } => (clue, response),
+        };
+        self.state.state_type = StateType::FinalClue;
+        self.state.clue = clue.clone();
+        self.state.response = response.clone();
+        self.send_state();
     }
 }
 
