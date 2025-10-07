@@ -1,4 +1,4 @@
-FROM rust:1.81-alpine as builder
+FROM rust:1.82-alpine as builder
 RUN apk add openssl-dev musl-dev openssl-libs-static
 WORKDIR /usr/src/jeopardy
 COPY Cargo.lock ./
