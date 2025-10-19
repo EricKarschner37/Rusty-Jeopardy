@@ -210,7 +210,7 @@ impl Game {
 
     fn get_filtered_state_for_player(&self, player_name: &str) -> State {
         let mut state_cpy = self.state.clone();
-        if !self.state.responded_players.contains(player_name) {
+        if self.state.state_type != StateType::Response && self.state.state_type != StateType::Board && !(self.state.buzzed_player == Some(player_name.to_string()) && self.state.responded_players.contains(player_name) && self.mode == GameMode::Hostless) {
             state_cpy.response = "".to_string();
         }
 
