@@ -180,7 +180,7 @@ impl Game {
             return;
         }
         self.state.wagers.insert(player, Some(wager));
-        if self.state.state_type == StateType::FinalWager {
+        if self.state.state_type == StateType::FinalWager && self.state.wagers.values().all(|w| w.is_some()) {
             self.show_final_clue();
         }
     }
