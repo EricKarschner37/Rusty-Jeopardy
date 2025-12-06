@@ -1,8 +1,12 @@
+use std::cmp;
+
 use futures_util::{SinkExt, StreamExt, TryFutureExt};
 use rand::seq::{IteratorRandom, SliceRandom};
 use serde::Deserialize;
 use tokio::sync::mpsc::{self, UnboundedSender};
 use warp::ws::{Message, WebSocket};
+
+use crate::lib::Player;
 
 use super::{
     game::{BaseMessage, PlayerMessage, RevealMessage, RoundType, StateType},
@@ -53,9 +57,18 @@ impl Game {
         } else {
             self.state.state_type = StateType::Board;
         }
+        let lowest_balance_player = self.state.players.iter().fold(None, |a, (_, b)| {
+            if let Some(a) = a {
+                Some(cmp::min_by_key(a, b, |p| p.balance))
+            } else {
+                Some(b)
+            }
+        });
+ 
+        self.state.active_player = lowest_balance_player.map(|p| p.name.clone());
+
         self.send_state();
     }
-
     fn remove_player(&mut self, player: String) {
         if let Some(Some(tx)) = self.state.players.remove(&player).map(|p| p.tx) {
             tx.send(Message::close());
