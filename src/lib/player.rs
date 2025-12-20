@@ -187,6 +187,7 @@ impl Game {
     }
 
     fn declare_has_responded(&mut self, player: &str) {
+        self.cancel_timeout();
         if self.mode != GameMode::Hostless {
             return;
         }

@@ -453,11 +453,11 @@ impl Game {
             } else {
                 self.state.buzzed_player = None;
                 self.set_buzzers_open(true, game_lock.clone());
-                self.send_state();
             }
         } else {
             self.state.buzzers_open = true;
         }
+        self.send_state();
     }
 
     pub fn get_max_wager(&self, player: &str) -> i32 {
