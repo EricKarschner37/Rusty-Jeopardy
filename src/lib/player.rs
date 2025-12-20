@@ -95,6 +95,7 @@ impl Game {
             return;
         }
 
+        self.cancel_timeout();
         self.state.buzzers_open = false;
         self.state.buzzed_player = Some(name.to_string());
         self.send_state();

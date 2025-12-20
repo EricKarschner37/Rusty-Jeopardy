@@ -1,18 +1,22 @@
 use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-    thread,
-    time::{Duration, SystemTime},
-    cmp,
+    cmp, collections::{HashMap, HashSet}, fmt, sync::{Arc, atomic::{AtomicBool, Ordering}}, thread::{self, ThreadId}, time::{Duration, SystemTime}
 };
 
 use futures::executor::block_on;
 use futures_util::{future::BoxFuture, FutureExt};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, ser::SerializeStruct};
 use tokio::sync::{mpsc, RwLock};
 use warp::ws::Message;
 
 use super::player::Player;
+
+type ThreadsafeCallbackFn = dyn (FnMut() -> BoxFuture<'static, ()>);
+
+#[derive(Clone)]
+pub struct ThreadsafeCallback(pub *mut ThreadsafeCallbackFn);
+
+unsafe impl std::marker::Send for ThreadsafeCallback {}
+unsafe impl Sync for ThreadsafeCallback {}
 
 pub trait Round {
     fn get_categories(&self) -> Vec<String>;
@@ -313,21 +317,35 @@ impl Game {
         self.send_to_all(Message::close());
     }
 
+    pub fn cancel_timeout(&mut self) {
+        if let Some(result) = &self.state.timeout_result {
+            unsafe {
+                block_on((*result.stop.0)());
+            }
+
+        }
+        self.state.timeout_result = None;
+    }
+
     pub fn set_buzzers_open(&mut self, open: bool, game_lock: Arc<RwLock<Game>>) {
         self.state.buzzers_open = open;
         if self.mode == GameMode::Hostless && open {
             let timer = Duration::from_secs(10);
-            self.state.timer_end_secs = Some(get_utc_now(Some(timer)));
-            set_timeout(timer, move || {
+            let timer_end_seconds = get_utc_now(Some(timer));
+            let stop = set_timeout(timer, move || {
                 {
                     let game_lock = game_lock.clone();
                     async move {
                         let mut game = game_lock.write().await;
                         game.set_buzzers_open(false, game_lock.clone());
-                        game.state.timer_end_secs = None;
+                        game.state.timeout_result = None;
                     }
                 }
                 .boxed()
+            });
+            self.state.timeout_result = Some(TimeoutResult {
+                timer_end_seconds,
+                stop,
             })
         }
         self.send_state();
@@ -388,16 +406,21 @@ impl Game {
 
         if self.mode == GameMode::Hostless {
             let timer = Duration::from_secs(10);
-            self.state.timer_end_secs = Some(get_utc_now(Some(timer)));
-            set_timeout(timer, move || {
+            let cb = move || {
                 let game_lock = game_lock.clone();
                 async move {
                     let mut game = game_lock.write().await;
                     game.set_buzzers_open(true, game_lock.clone());
-                    game.state.timer_end_secs = None;
+                    game.state.timeout_result = None;
                     game.send_state();
                 }
                 .boxed()
+            };
+            let timer_end_seconds = get_utc_now(Some(timer));
+            let stop = set_timeout(timer, cb);
+            self.state.timeout_result = Some(TimeoutResult {
+                timer_end_seconds,
+                stop,
             })
         }
     }
@@ -474,14 +497,30 @@ fn get_utc_now(offset: Option<Duration>) -> u64 {
         .as_secs()
 }
 
-fn set_timeout<F>(timeout: Duration, mut callback: F)
+fn set_timeout<F>(timeout: Duration, mut callback: F) -> ThreadsafeCallback
 where
     F: (FnMut() -> BoxFuture<'static, ()>) + std::marker::Send + 'static,
 {
-    thread::spawn(move || {
-        thread::sleep(timeout);
-        block_on(callback())
+    let should_stop = Arc::new(AtomicBool::new(false));
+    thread::spawn({
+        let should_stop = should_stop.clone();
+        move || {
+            thread::sleep(timeout);
+            if !should_stop.load(Ordering::SeqCst) {
+                block_on(callback())
+            }
+        }
     });
+
+    let mut stop = move || {
+        let should_stop = should_stop.clone();
+        async move {
+            should_stop.store(true, Ordering::SeqCst)
+        }
+        .boxed()
+    };
+
+    return ThreadsafeCallback(&raw mut stop);
 }
 
 #[derive(Serialize, Debug, Clone)]
@@ -502,7 +541,29 @@ pub struct State {
     pub player_responses: HashMap<String, Option<String>>,
     pub bare_round: BareRoundType,
     pub round_idx: usize,
-    pub timer_end_secs: Option<u64>,
+    pub timeout_result: Option<TimeoutResult>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TimeoutResult {
+    pub timer_end_seconds: u64,
+    pub stop: ThreadsafeCallback,
+}
+
+impl fmt::Debug for ThreadsafeCallback {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        f.debug_struct("ThreadsafeCallback").finish()
+    }
+}
+
+impl Serialize for TimeoutResult {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer {
+            let mut state = serializer.serialize_struct("TimeoutResult", 1)?;
+            state.serialize_field("timer_end_seconds", &self.timer_end_seconds)?;
+            state.end()
+    }
 }
 
 #[derive(Serialize, PartialEq, Debug, Clone)]
@@ -534,7 +595,7 @@ impl State {
             player_responses: HashMap::new(),
             bare_round: first_round.clone().to_bare_round(),
             round_idx: 0,
-            timer_end_secs: None,
+            timeout_result: None,
         }
     }
 }
